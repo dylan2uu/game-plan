@@ -253,7 +253,7 @@ def size_pending(vl, vault, force=False):
         try:
             items = [{"id": tid, "title": t["title"], "class": t["course"], "due": t["due"]} for tid, t in todo]
             prompt = ("Dylan is a junior CS student at Binghamton (CS 350 Operating Systems/xv6, CS 301 Ethics in Computing, "
-                      "Math 314 Discrete Math, CDCI 395 internship course). For each assignment, estimate size and give a "
+                      "Math 314 Discrete Math, CDCI 395 internship course). Assignments live in Brightspace (never say Canvas). For each assignment, estimate size and give a "
                       "specific 2-minute first step that names the actual thing to open or do (not generic advice). "
                       "Points scale by effort: 1 (<15 min), 2 (15-30), 3 (30-60), 5 (1-2 h), 8 (2-4 h), 13 (4+ h). "
                       'Return a JSON array: [{"id": string, "points": number, "estMin": number, "firstStep": string under 110 chars}].\n'
@@ -273,6 +273,8 @@ def size_pending(vl, vault, force=False):
                     if step and (not cur or cur.startswith(GENERIC_STEP)):
                         set_field(paths[tid], "first_step", step)
                 save_store(vault, store)
+            if len(todo) == 15:
+                _sizing["last"] = 0.0          # more left: next page poll starts the next batch
         except Exception as e:  # sizing is a bonus; never break the app
             print("sizing failed:", e, flush=True)
         finally:
