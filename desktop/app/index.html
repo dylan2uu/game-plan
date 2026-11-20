@@ -3,39 +3,58 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#E6EAF0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12151B" media="(prefers-color-scheme: dark)">
 <title>Game Plan</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+<a class="skip" href="#hero">Skip to today's task</a>
+
 <header class="top">
-  <div class="brand"><img src="/icon.svg" alt="" width="26" height="26"><span>Game Plan</span></div>
-  <div class="today" id="today"></div>
-  <div class="prog" id="prog" aria-live="polite"></div>
+  <h1 class="brand" translate="no"><img src="/icon.svg" alt="" width="28" height="28">Game Plan</h1>
+  <p class="date" id="today"></p>
+  <div class="week" id="week" aria-live="polite"></div>
+  <button class="sound" id="sound" type="button" aria-pressed="true" aria-label="Completion sound">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  </button>
 </header>
 
 <main>
-  <section class="hero" id="hero" aria-label="Start here"></section>
+  <section class="hero-wrap" aria-label="Today's task">
+    <article class="hero" id="hero" tabindex="-1"></article>
+  </section>
 
   <div class="cols">
-    <section class="card" aria-labelledby="up-h">
+    <section class="panel" aria-labelledby="up-h">
       <h2 id="up-h">Up next</h2>
       <div id="lists"></div>
     </section>
-    <section class="card" aria-labelledby="cal-h">
-      <div class="cal-head">
-        <button class="icon-btn" data-act="prev" aria-label="Previous month">‹</button>
-        <h2 id="cal-h"></h2>
-        <button class="icon-btn" data-act="next" aria-label="Next month">›</button>
-      </div>
-      <div class="cal" id="cal"></div>
-      <div class="day-list" id="dayList"></div>
-    </section>
+
+    <div class="side">
+      <section class="panel pile-panel" aria-labelledby="pile-h">
+        <h2 id="pile-h">Done today</h2>
+        <div class="pile" id="pile"></div>
+      </section>
+      <section class="panel" aria-labelledby="cal-h">
+        <div class="cal-head">
+          <button class="icon-btn" type="button" data-act="prev" aria-label="Previous month">‹</button>
+          <h2 id="cal-h"></h2>
+          <button class="icon-btn" type="button" data-act="next" aria-label="Next month">›</button>
+        </div>
+        <div class="cal" id="cal"></div>
+        <div class="day-list" id="dayList"></div>
+      </section>
+    </div>
   </div>
 </main>
 
-<div class="toast" id="toast" role="status" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script src="/app.js"></script>
 </body>
 </html>

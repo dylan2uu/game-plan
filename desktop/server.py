@@ -76,8 +76,11 @@ def state(vl, vault):
     month_from = today.replace(day=1) - dt.timedelta(days=7)
     cal = [task_json(vl, vault, a, today) for a in all_a
            if a["due"] and month_from <= a["due"] <= today + dt.timedelta(days=62)]
+    done_on = {a["path"]: vl.read_frontmatter(a["path"]).get("done", "") for a in all_a if a["status"] == "done"}
     return {
         "today": today.isoformat(),
+        "week": [task_json(vl, vault, a, today) for a in sorted(this_week, key=lambda a: a["due"])],
+        "done_today": [task_json(vl, vault, a, today) for a in all_a if done_on.get(a["path"]) == today.isoformat()],
         "hero": task_json(vl, vault, open_a[0], today) if open_a else None,
         "open": [task_json(vl, vault, a, today) for a in open_a],
         "calendar": cal,
@@ -91,6 +94,18 @@ def safe_note(vl, vault, rel):
     if not p.startswith(os.path.realpath(vault) + os.sep) or not p.endswith(".md") or not os.path.exists(p):
         return None
     return p if vl.read_frontmatter(p).get("type") == "assignment" else None
+
+
+def set_field(path, key, value):
+    """Set a frontmatter field, adding it if missing (value None removes it)."""
+    text = open(path, encoding="utf-8").read()
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return
+    lines = [l for l in m.group(1).split("\n") if not l.startswith(key + ":")]
+    if value is not None:
+        lines.append(f"{key}: {value}")
+    open(path, "w", encoding="utf-8").write("---\n" + "\n".join(lines) + "\n---\n" + text[m.end():])
 
 
 def log_started(vl, vault, title, step):
@@ -167,6 +182,7 @@ class Handler(BaseHTTPRequestHandler):
             if status not in ("todo", "doing", "done"):
                 return self._send(400, {"error": "bad status"})
             self.vl.set_frontmatter_field(p, "status", status)
+            set_field(p, "done", today.isoformat() if status == "done" else None)
             return self._send(200, {"ok": True})
         if route == "/api/start":
             a = next(x for x in self.vl.assignments(self.vault) if x["path"] == p)
