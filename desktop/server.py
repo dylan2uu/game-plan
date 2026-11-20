@@ -17,6 +17,9 @@ import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bridge  # noqa: E402  (v1 database + AI on top of the vault)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.join(HERE, "app")
 VAULT = os.path.expanduser(os.environ.get("GP_VAULT", "~/Obsidian/Vault"))
@@ -156,12 +159,16 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/state":
             return self._send(200, state(self.vl, self.vault))
-        files = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
-                 "/app.css": ("app.css", "text/css"), "/manifest.json": ("manifest.json", "application/manifest+json"),
-                 "/icon.svg": ("icon.svg", "image/svg+xml")}
-        if path in files:
-            name, ctype = files[path]
-            return self._send(200, open(os.path.join(APP_DIR, name), "rb").read(), ctype)
+        if path == "/api/db":
+            bridge.size_pending(self.vl, self.vault)      # background; returns immediately
+            return self._send(200, bridge.snapshot(self.vl, self.vault))
+        types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
+                 ".json": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png"}
+        name = "index.html" if path == "/" else path.lstrip("/")
+        full = os.path.realpath(os.path.join(APP_DIR, name))
+        ext = os.path.splitext(full)[1]
+        if full.startswith(os.path.realpath(APP_DIR) + os.sep) and ext in types and os.path.isfile(full):
+            return self._send(200, open(full, "rb").read(), types[ext])
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -172,10 +179,21 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 2) or b"{}")
         except ValueError:
             return self._send(400, {"error": "bad json"})
+        route = urllib.parse.urlparse(self.path).path
+        if route == "/api/db":
+            try:
+                bridge.write(self.vl, self.vault, body.get("op"), body.get("path"), body.get("data"))
+            except bridge.DBError as e:
+                return self._send(400, {"code": e.code, "error": str(e)})
+            return self._send(200, {"ok": True, "db": bridge.snapshot(self.vl, self.vault)})
+        if route == "/api/ai":
+            try:
+                return self._send(200, {"result": bridge.ai_json(str(body.get("prompt", ""))[:20000], body.get("tier", "quick"))})
+            except bridge.DBError as e:
+                return self._send(502, {"code": e.code, "error": str(e)})
         p = safe_note(self.vl, self.vault, str(body.get("id", "")))
         if not p:
             return self._send(404, {"error": "no such assignment"})
-        route = urllib.parse.urlparse(self.path).path
         today = dt.date.today()
         if route == "/api/status":
             status = body.get("status")
