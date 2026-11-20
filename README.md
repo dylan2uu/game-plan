@@ -1,55 +1,46 @@
 # Game Plan
 
-An AI planner that turns what you type into ranked tasks, tells you the one thing to do now, and pings your phone through Google Calendar until you start it. Finishing work earns points that grow a garden.
+A one-page desktop planner for low-motivation days. It shows the **one thing to do next and why**, gives you a 5-minute first step, and has a **Start** button that opens a fresh Claude chat about just that task.
 
-![Desktop](screenshots/desktop.png)
+No habit tracking, no points, no timers. Just: what, why, first step, go.
 
-## Why I built it
-
-My problem was never keeping a to-do list. It was starting. Game Plan is built around that: one task at a time, a two-minute first step, and reminders timed for when I'm actually free.
-
-## What it does
-
-- **Plain-English input.** Type "CS 350 homework due Friday, gym tonight" and an LLM turns it into sized, dated tasks with a two-minute first step. Every change can be undone.
-- **Priority engine.** Ranks tasks by work left versus free time before the deadline, using Google Calendar events and weekly busy blocks. Each task shows *why* it's ranked where it is.
-- **Smart phone nudges.** Writes reminders to Google Calendar: up to 3 a day for urgent tasks, 1 for "start today" tasks, capped at 5 a day, spaced at least an hour apart. They stop once you start a task, learn which hours you actually respond to, and back off tasks you keep ignoring.
-- **Brightspace import.** Pulls class deadlines from the D2L calendar feed and links each task to its submit page.
-- **One-page board.** "Do this now", the ranked lineup, a month calendar and progress all on one screen.
-- **Points, not hours.** Tasks are worth 1 to 13 points by size, with a daily goal that separates good days from slow ones.
-- **Timer.** A count-up timer that grows a plant every 25 minutes. Time is tracked for the record; points are what count.
-
-| Phone | Timer | Garden |
-|---|---|---|
-| ![](screenshots/phone.png) | ![](screenshots/timer.png) | ![](screenshots/garden.png) |
-
-## How it's built
-
-- **JavaScript, HTML and CSS** in a single file, with no framework or build step for the app itself (a small Python script assembles `src/` into `index.html`).
-- **Claude API** for parsing input and sizing tasks, using structured JSON output.
-- **Google Calendar API** through MCP for reading busy time and creating, updating and deleting reminder events.
-- **Real-time document database** (Firestore-style) that keeps phone and laptop in sync.
-- **Playwright end-to-end tests**, with the database and calendar mocked, run against both sample data and a snapshot of real usage.
-
-### Problems worth mentioning
-
-- **Duplicate reminders.** With the app open on two devices, both planned nudges. A short database lease now lets only one copy plan, and a cleanup step removes reminders no task is tracking. A second planning pass makes zero calendar calls (idempotent).
-- **Devices undoing each other.** Saving whole documents let one device overwrite another's changes. Switching to merge-writes of only the changed fields fixed it.
-- **A stopped timer coming back.** Late database updates could restore a timer that had already been stopped. The app now ignores updates for sessions it has already ended.
-
-## Running it
-
-Game Plan runs as an artifact inside Claude, which provides its database, Google Calendar access and AI calls. `index.html` is the full app. Opened as a plain web page, it loads but shows "Open Game Plan inside Claude" because those services aren't there.
-
-## Structure
+## How it works
 
 ```
-index.html        the assembled app
-src/head.html     markup and styles
-src/js-core.js    constants and app state
-src/js-tasks.js   priority engine, timer, task actions
-src/js-nudge.js   nudge planner and Google Calendar sync
-src/js-render.js  page rendering (board, calendar, progress)
-src/js-ui.js      clicks, forms and startup
-src/plants.js     procedural plant and tree drawings (SVG)
-src/scene.js      the garden scene
+Brightspace calendar ──(7:45am sync)──▶ Obsidian vault ◀──▶ Game Plan (http://127.0.0.1:4317)
+                                     01 Classes/*/Assignments/*.md
 ```
+
+- **One source of truth.** Game Plan reads and writes the same assignment notes in the Obsidian vault that the Brightspace sync creates. There's no second database. Mark something done in Game Plan, and it's done in Obsidian too.
+- **One page:** START HERE card (what / why / first step), Up next (overdue, this week, later), a month calendar and this week's progress.
+- **Start** marks the task `doing`, logs it in today's daily note, and opens `claude.ai/new` with the task pre-filled.
+- **Nudges** at 10:30, 14:30 and 19:30 name the most urgent task you haven't started, with a reason. They skip if you started something in the last 90 minutes or if nothing's urgent.
+
+## Run it
+
+```bash
+cd desktop
+zsh install.sh            # server at login + nudges (launchd). --dry-run to preview, --uninstall to remove
+open http://127.0.0.1:4317
+```
+For a real desktop app: open it in **Safari → File → Add to Dock**.
+
+Needs only macOS's built-in `python3`. The vault path defaults to `~/Obsidian/Vault` (override with `GP_VAULT=...` or `--vault`).
+
+## Files
+
+```
+desktop/server.py     local server: reads/writes vault notes, localhost only
+desktop/nudge.py      the 3x/day "what next and why" alert
+desktop/install.sh    launchd setup
+desktop/app/          the page (plain HTML/CSS/JS, no build step)
+legacy/               v1: the claude.ai artifact version (also tagged v1-artifact)
+```
+
+## Safety
+
+The server listens on 127.0.0.1 only, rejects requests addressed to other hostnames (DNS rebinding), requires a custom header on writes (blocks cross-site requests), and only touches notes with `type: assignment` inside the vault.
+
+## v1
+
+The first version ran as a Claude artifact with its own database, Google Calendar nudges, points and a garden. It's in `legacy/` and under the git tag `v1-artifact`.
