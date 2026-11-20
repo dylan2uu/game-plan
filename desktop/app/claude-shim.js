@@ -82,3 +82,21 @@
     },
   };
 })();
+
+/* ---------- Start → Claude Code in Terminal (on this Mac only) ----------
+   v1's Start/quick-start links point at claude.ai/new?q=<task>. On the Mac we stop the browser
+   from opening that link and ask the server to open Terminal with Claude Code instead.
+   v1's own click handler still runs (timer, "first step done", points). Phones keep claude.ai. */
+(function () {
+  const onMac = /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && /Mac/.test(navigator.platform);
+  if (!onMac) return;
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="https://claude.ai/new?q="]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;     // ⌘-click still opens claude.ai
+    e.preventDefault();                                           // no new tab; v1 handlers still fire
+    const task = new URL(a.href).searchParams.get("q") || "";
+    fetch("/api/launch", { method: "POST", headers: { "Content-Type": "application/json", "X-Game-Plan": "1" }, body: JSON.stringify({ task }) })
+      .then((r) => { if (!r.ok) throw new Error(); })
+      .catch(() => window.open(a.href, "_blank", "noopener"));   // fallback: claude.ai
+  }, true);
+})();

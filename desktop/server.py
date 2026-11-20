@@ -13,12 +13,14 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bridge  # noqa: E402  (v1 database + AI on top of the vault)
+import launcher  # noqa: E402  (Start → Claude Code in Terminal)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.join(HERE, "app")
@@ -186,6 +188,12 @@ class Handler(BaseHTTPRequestHandler):
             except bridge.DBError as e:
                 return self._send(400, {"code": e.code, "error": str(e)})
             return self._send(200, {"ok": True, "db": bridge.snapshot(self.vl, self.vault)})
+        if route == "/api/launch":
+            try:
+                folder = launcher.launch(self.vl, self.vault, body.get("task", ""))
+            except (ValueError, OSError, subprocess.CalledProcessError) as e:
+                return self._send(400, {"error": str(e)})
+            return self._send(200, {"ok": True, "folder": folder})
         if route == "/api/ai":
             try:
                 return self._send(200, {"result": bridge.ai_json(str(body.get("prompt", ""))[:20000], body.get("tier", "quick"))})
