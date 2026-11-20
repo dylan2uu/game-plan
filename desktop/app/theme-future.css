@@ -161,3 +161,68 @@ h1, h2, .cal-title, .now .title, .fl-title, .gbig h2 {
   background:linear-gradient(135deg, rgba(139,124,255,.55), rgba(34,211,238,.35)) !important;
   box-shadow:0 8px 24px -10px rgba(139,124,255,.9), inset 0 1px 0 rgba(255,255,255,.25) !important;
 }
+
+/* =================== dopamine layer =================== */
+/* Momentum panel */
+.momentum {
+  margin-bottom:14px; padding:18px 20px 16px; border-radius:22px;
+  background:linear-gradient(180deg, rgba(139,124,255,.12), rgba(255,255,255,.025));
+  -webkit-backdrop-filter:var(--glass); backdrop-filter:var(--glass);
+  box-shadow:var(--edge), 0 24px 60px -30px rgba(0,0,0,.9);
+}
+.mo-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.momentum h2 { font:600 17px/1.2 var(--font-display); margin:0; letter-spacing:-.01em; }
+.mo-sub { margin:4px 0 0; color:var(--ink-2); font-size:14px; }
+.mo-sub b { font:600 22px var(--font-mono); color:var(--ink); margin-right:4px; font-variant-numeric:tabular-nums; }
+.mo-delta { font:600 12.5px var(--font-mono); padding:5px 10px; border-radius:99px; white-space:nowrap; }
+.mo-delta.up { color:#6FF0BF; background:rgba(62,230,168,.12); box-shadow:inset 0 0 0 1px rgba(62,230,168,.3); }
+.mo-delta.down { color:#FF8DB3; background:rgba(255,92,147,.12); box-shadow:inset 0 0 0 1px rgba(255,92,147,.3); }
+.mo-chart { width:100%; height:110px; display:block; margin-top:10px; overflow:visible; }
+.mo-line { stroke-dasharray:1; stroke-dashoffset:1; filter:drop-shadow(0 0 6px rgba(139,124,255,.6)); }
+.momentum.go .mo-line, .ritual.in .mo-line { animation:mo-draw 1.4s cubic-bezier(.3,.7,.2,1) forwards; }
+.mo-fill { opacity:0; }
+.momentum.go .mo-fill, .ritual.in .mo-fill { animation:mo-fade .9s .5s ease forwards; }
+.mo-dot { fill:#FFB547; filter:drop-shadow(0 0 8px #FFB547); transform-box:fill-box; transform-origin:center; animation:mo-pulse 2.2s ease-in-out infinite; }
+.mo-days { display:grid; grid-template-columns:repeat(14,1fr); font:500 10.5px var(--font-mono); color:var(--muted); text-align:center; margin-top:2px; }
+.mo-days .mo-today { color:#FFCB7A; }
+.mo-classes { display:grid; gap:9px; margin-top:14px; }
+.mo-class { display:grid; grid-template-columns:120px 1fr 44px; align-items:center; gap:10px; font-size:13px; }
+.mo-cname { color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mo-track { height:9px; border-radius:99px; background:rgba(255,255,255,.07); overflow:hidden; }
+.mo-track i { display:block; height:100%; width:var(--to); border-radius:inherit; background:linear-gradient(90deg, color-mix(in srgb,var(--c) 55%,transparent), var(--c));
+  box-shadow:0 0 14px -2px var(--c); transform-origin:left; transform:scaleX(0); }
+.momentum.go .mo-track i { animation:mo-grow 1.1s .3s cubic-bezier(.2,.9,.2,1) forwards; }
+.mo-count { font:600 12.5px var(--font-mono); color:var(--ink); text-align:right; font-variant-numeric:tabular-nums; }
+.mo-foot { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.mo-chip { font-size:12.5px; font-weight:600; padding:5px 10px; border-radius:99px; background:rgba(255,255,255,.06); color:var(--ink-2); }
+.mo-chip.hot { color:#FFCB7A; background:rgba(255,181,71,.12); box-shadow:inset 0 0 0 1px rgba(255,181,71,.3); }
+
+/* Daily welcome */
+.ritual { position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:20px;
+  background:radial-gradient(800px 500px at 50% 30%, rgba(139,124,255,.25), transparent 70%), rgba(5,6,12,.78);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); opacity:0; transition:opacity .35s ease; }
+.ritual.in { opacity:1; } .ritual.out { opacity:0; }
+.rt-card { width:min(620px,100%); text-align:center; transform:translateY(14px) scale(.98); transition:transform .5s cubic-bezier(.2,.9,.2,1); }
+.ritual.in .rt-card { transform:none; }
+.rt-hi { font:600 clamp(22px,3vw,30px)/1.15 var(--font-display); margin:0 0 22px; letter-spacing:-.02em; }
+.rt-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.rt-stats div { padding:16px 10px; border-radius:18px; background:rgba(255,255,255,.05); box-shadow:var(--edge); }
+.rt-stats b { display:block; font:600 clamp(32px,5vw,46px)/1 var(--font-mono); background:linear-gradient(180deg,#fff,#B9AEFF); -webkit-background-clip:text; background-clip:text; color:transparent; font-variant-numeric:tabular-nums; }
+.rt-stats span { display:block; margin-top:6px; font-size:13px; color:var(--ink-2); }
+.ritual .mo-chart { height:120px; margin:18px 0 6px; }
+.rt-line { font-size:17px; color:var(--ink); margin:8px 0 22px; }
+.rt-go { border:0; border-radius:14px; padding:13px 30px; font:600 16px var(--font-display); color:#1F1300; cursor:pointer;
+  background:linear-gradient(180deg,#FFC86B,#FFA62E); box-shadow:0 12px 34px -8px rgba(255,166,46,.7), inset 0 1px 0 rgba(255,255,255,.5); }
+
+/* finish burst + header pulse */
+.burst { position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:300; }
+#top.pulse { animation:top-pulse .7s ease; }
+
+@keyframes mo-draw { to { stroke-dashoffset:0; } }
+@keyframes mo-fade { to { opacity:1; } }
+@keyframes mo-grow { to { transform:scaleX(1); } }
+@keyframes mo-pulse { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.5); opacity:.7; } }
+@keyframes top-pulse { 0% { filter:none; } 30% { filter:drop-shadow(0 0 22px rgba(255,181,71,.8)); } 100% { filter:none; } }
+@media (prefers-reduced-motion: reduce) {
+  .mo-line { stroke-dashoffset:0; } .mo-fill { opacity:1; } .mo-track i { transform:none; } .mo-dot { animation:none; }
+}

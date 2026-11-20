@@ -16,7 +16,9 @@
     try {
       const r = await fetch("/api/db", { cache: "no-store" });
       if (!r.ok) throw new Error(r.status);
+      const prev = cache;
       cache = await r.json();
+      announce(prev);
       listeners.forEach(fire);
     } catch (e) { listeners.forEach((l) => l.err && l.err({ code: "unavailable" })); }
   }
@@ -24,6 +26,17 @@
   setInterval(pull, 3000);                                        // pick up Brightspace syncs + Obsidian edits
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pull(); });
 
+  /* tell the dopamine layer what changed: gp:data every refresh, gp:done when a task gets finished */
+  function announce(prev) {
+    window.__gp = cache;
+    document.dispatchEvent(new CustomEvent("gp:data", { detail: cache }));
+    if (!prev) return;
+    Object.entries(cache.tasks || {}).forEach(([id, t]) => {
+      const before = prev.tasks && prev.tasks[id];
+      if (t.status === "done" && before && before.status !== "done")
+        document.dispatchEvent(new CustomEvent("gp:done", { detail: { id, title: t.title, points: t.points || 1, course: t.course } }));
+    });
+  }
   function docData(path) {
     const [c, id] = path.split("/");
     const src = c === "tasks" ? cache.tasks : cache.meta;
@@ -46,7 +59,7 @@
     const r = await fetch("/api/db", { method: "POST", headers: H, body: JSON.stringify({ op, path, data: clone(data) }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw { code: j.code || "unavailable", message: j.error || "write failed" };
-    if (j.db) { cache = j.db; setTimeout(() => listeners.forEach(fire), 0); }
+    if (j.db) { const prev = cache; cache = j.db; announce(prev); setTimeout(() => listeners.forEach(fire), 0); }
   }
   function listen(entry) {
     listeners.push(entry); fire(entry);
