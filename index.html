@@ -839,7 +839,7 @@ body{background:var(--bg);font-size:16px}
 /* ===== board layout: do (left) / see (right), progress underneath ===== */
 .board{display:flex;flex-direction:column}
 .col-do,.col-see{display:contents}
-#gstrip{order:1}#bar{order:2}#feed{order:3}#hero{order:4}#upnext{order:5}#calbox{order:6}
+#gstrip{order:1}#bar{order:2}#feed{order:3}#hero{order:4}#daybox{order:5}#upnext{order:6}#calbox{order:7}
 #main[data-view="garden"] .board{display:none}
 #hero:not(:empty){margin-top:4px}
 #calbox{margin-top:26px}
@@ -945,6 +945,92 @@ body{background:var(--bg);font-size:16px}
 .dock .btn.primary{background:var(--sun);color:#2E1F00;border-color:var(--sun)}
 .dock .link{color:var(--packet-muted);font-size:13px;padding:4px 6px}
 .dock .ask{margin-top:10px;background:rgba(245,195,91,.16);color:#FFE2A6}
+
+/* ===== your day ===== */
+#daybox{margin-top:18px}
+.daycard{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:16px 16px 12px}
+.daycard .pc-head{margin-bottom:14px}
+.dl{position:relative;padding-top:16px}
+.dl-track{position:relative;height:38px;border-radius:12px;background:var(--surface-2);overflow:visible}
+.dl-seg{position:absolute;top:0;bottom:0;border-radius:9px;display:flex;align-items:center;overflow:hidden;min-width:3px}
+.dl-seg em{font-style:normal;font-size:12px;font-weight:700;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-seg.free{background:var(--mint-soft);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--mint) 45%,transparent)}
+.dl-seg.sched{background:var(--ink);color:var(--bg);z-index:1}
+.dl-seg.cal{background:var(--muted);color:var(--bg);z-index:1}
+.dl-pin{position:absolute;top:-15px;transform:translateX(-50%);width:24px;height:24px;border-radius:50% 50% 50% 2px;rotate:-45deg;background:var(--sun);color:#2E1F00;display:grid;place-items:center;z-index:3;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.dl-pin svg{rotate:45deg}
+.dl-pin.past{background:var(--surface-3);color:var(--muted);box-shadow:none}
+.dl-now{position:absolute;top:-4px;bottom:-4px;width:2.5px;border-radius:2px;background:var(--rose);z-index:2;transform:translateX(-50%)}
+.dl-ticks{position:relative;height:18px;margin-top:5px}
+.dl-ticks span{position:absolute;transform:translateX(-50%);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.dl-ticks span:first-child{transform:none}.dl-ticks span:last-child{transform:translateX(-100%)}
+.dl-status{margin:8px 2px 0;font-size:15px;color:var(--ink-2)}
+.dl-status b{color:var(--ink)}
+.dl-next{display:flex;gap:7px;align-items:flex-start;margin:4px 2px 0;font-size:14px;color:var(--ink-2)}
+.dl-next svg{flex:none;margin-top:4px;color:var(--sun-text)}
+.dl-next span{min-width:0;overflow-wrap:anywhere}
+.dl-key{display:flex;flex-wrap:wrap;gap:4px 14px;margin:10px 2px 12px;font-size:12px;color:var(--muted);font-weight:600}
+.dl-key span{display:inline-flex;align-items:center;gap:6px}
+.dl-key i{width:14px;height:9px;border-radius:3px;display:inline-block}
+.k-free{background:var(--mint-soft);box-shadow:inset 0 0 0 1.5px var(--mint)}.k-sched{background:var(--ink)}.k-cal{background:var(--muted)}
+.daycard .fold{border:0;border-top:1px solid var(--line);border-radius:0;background:none}
+.daycard .fold-head{padding:12px 2px}
+.daycard .fold-head:hover{background:none}
+.daycard .fold-body{padding:0 2px 6px}
+.sch-list{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:5px}
+.sch-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface-2);border-radius:10px;padding:4px 4px 4px 12px;font-size:14px;color:var(--ink-2)}
+.sch-list b{color:var(--ink);margin-right:6px}
+.sch-empty{margin:0 0 10px;font-size:14px;color:var(--ink-2)}
+.sch-form{display:flex;flex-direction:column;gap:8px}
+.sch-form input{font-size:15px;padding:9px 11px;border-radius:10px}
+.sch-days{display:flex;gap:5px}
+.sch-d{appearance:none;flex:1;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-weight:700;cursor:pointer}
+.sch-d.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.sch-times{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.sch-times input{flex:1 1 110px;width:auto}
+.sch-times span{color:var(--muted);font-size:14px}
+/* ===== growth: today's stack and the next tree ===== */
+.growth{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0;background:var(--packet);color:var(--packet-ink);border-radius:24px;overflow:hidden;margin-bottom:12px}
+.gr-col{padding:18px 20px}
+.gr-col + .gr-col{background:var(--packet-2)}
+.gr-k{margin:0;font-size:13.5px;font-weight:600;color:var(--packet-muted)}
+.gr-big{margin:2px 0 10px;font-family:var(--font-display);font-size:38px;line-height:1.05}
+.gr-big small{font-family:var(--font-body);font-size:15px;font-weight:600;color:var(--packet-muted)}
+.gr-sub{margin:10px 0 0;font-size:14px;color:var(--packet-muted);line-height:1.45}
+.tstack{display:flex;gap:3px;height:34px}
+.ts-b{min-width:8px;border-radius:7px;display:grid;place-items:center;font-size:12.5px;font-weight:800;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);animation:stackin .5s cubic-bezier(.2,1.4,.4,1) backwards}
+.ts-b.done{box-shadow:inset 0 0 0 2px rgba(255,255,255,.55)}
+.ts-rest{border-radius:7px;border:1.5px dashed var(--packet-line);min-width:0}
+@keyframes stackin{from{transform:scaleY(.2);opacity:0}to{transform:none;opacity:1}}
+.growth .meter{height:12px;background:rgba(255,255,255,.12)}
+.growth .meter i{background:linear-gradient(90deg,#7FD3A0,var(--sun))}
+.stk{display:flex;flex-direction:column-reverse;gap:1.5px;width:min(100%,26px);border-radius:5px 5px 0 0;overflow:hidden}
+.stk b{display:block;min-height:2px}
+.stk.today{outline:2px solid var(--ink);outline-offset:1px}
+.stk-key{display:flex;flex-wrap:wrap;gap:4px 12px;margin:10px 0 0;font-size:12.5px;color:var(--ink-2);font-weight:600}
+.stk-key span{display:inline-flex;align-items:center;gap:5px}
+.stk-key i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.tile span{overflow-wrap:anywhere}
+.lk-pill.solo{padding-right:12px}
+.now .actions{grid-template-columns:2fr 1fr}
+.dl-h{margin:12px 2px 6px;font-size:13.5px;font-weight:700;color:var(--ink)}
+.dl-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.dl-list li{display:flex;align-items:center;gap:10px;font-size:14px;padding:6px 10px;border-radius:10px;background:var(--surface-2)}
+.dl-list li.next{background:var(--sun-soft)}
+.dl-list li.past{opacity:.55}
+.dl-t{flex:none;display:inline-flex;align-items:center;gap:6px;font-weight:700;min-width:84px;font-variant-numeric:tabular-nums}
+.dl-t svg{color:var(--sun-text)}
+.dl-task{appearance:none;flex:1;min-width:0;border:0;background:none;padding:0;text-align:left;color:var(--ink-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-list em{flex:none;font-style:normal;font-size:12px;font-weight:700;color:var(--muted)}
+.dl-list li.next em{color:var(--sun-text)}
+.dl-hrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.dl-hrow .dl-h{margin:0 2px}
+.dl-ref{font-size:13.5px;padding:4px 2px;color:var(--accent-text)}
+.dl-ref:disabled{opacity:.6;cursor:default}
+.dl-list{margin-top:6px}
+.dl-none{margin:6px 2px 0;font-size:14px;color:var(--ink-2)}
+.dl-day{margin:10px 2px 0;font-size:13px;font-weight:700;color:var(--muted)}
+.dl-more{display:block;font-size:13.5px;padding:8px 2px 2px}
 </style>
 
 <div class="app" id="app">
@@ -968,6 +1054,7 @@ body{background:var(--bg);font-size:16px}
           <button id="barSend" class="send" type="submit" aria-label="Send" disabled><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </form>
         <div id="feed" class="feed"></div>
+        <section id="daybox"></section>
         <section id="calbox"></section>
       </div>
     </div>
@@ -1047,7 +1134,7 @@ const SCALE = [1, 2, 3, 5, 8, 13];
 const EST = { 1: 10, 2: 25, 3: 45, 5: 90, 8: 180, 13: 300 };
 const GCAL = "Google Calendar";
 const APP_LINK = "";
-const DEFAULTS = { why: "", dailyTarget: 10, focusMin: 25, breakMin: 5, nudges: true, nudgeCap: 5, busy: [], checkin: null, lastCheckin: null, bsCalendarId: null, bsCalendarName: "", bsFeedUrl: "", lastSync: null, anchors: [], appUrl: "", digest: null, bank: null };
+const DEFAULTS = { why: "", dailyTarget: 10, focusMin: 25, breakMin: 5, nudges: true, nudgeCap: 5, busy: [], checkin: null, lastCheckin: null, bsCalendarId: null, bsCalendarName: "", bsFeedUrl: "", bsPulled: null, lastSync: null, anchors: [], appUrl: "", digest: null, bank: null };
 const ANCHORS = [
   { key: "wake", summary: "Up. Water, then shower.", h: 7, m: 0, len: 10, desc: "Alarm is across the room. Lights on, drink the water, straight into the shower. No snooze." },
   { key: "prep", summary: "Night prep", h: 21, m: 30, len: 15, desc: "Clothes out, bag packed, breakfast and coffee ready, tomorrow's first step written down." },
@@ -1820,15 +1907,30 @@ function slotOk(x, from, to, busy, used, mine) {
   if (mine.some((u) => Math.abs(u - x) < 150 * 60000)) return false;
   return true;
 }
-function bestSlot(day, from, to, busy, used, mine, rates) {
+/* the open stretches of a day: 9 AM to 9:30 PM minus classes, work and calendar events (30 min or longer) */
+function freeWindows(day, busy) {
+  const s = +hmDate(day, 9, 0), e = +hmDate(day, 21, 30), out = [];
+  let cur = s;
+  busy.filter((b) => b.e > s && b.s < e).sort((x, y) => x.s - y.s).forEach((b) => { if (b.s > cur) out.push({ s: cur, e: Math.min(b.s, e), open: cur > s }); cur = Math.max(cur, b.e); });
+  if (cur < e) out.push({ s: cur, e, open: cur > s, last: true });
+  return out.filter((w) => w.e - w.s >= 30 * 60000);
+}
+function windowAt(day, busy, x) { return freeWindows(day, busy).find((w) => x >= w.s && x < w.e) || null; }
+/* a nudge goes where he can act on it: 5 minutes into a free block scores highest, then spots with the most room left */
+function bestSlot(day, from, to, busy, used, mine, rates, avoid) {
   let best = null, bs = -1;
-  for (let m = 9 * 60; m <= 21 * 60 + 30; m += 30) {
-    const x = +hmDate(day, Math.floor(m / 60), m % 60);
-    if (!slotOk(x, from, to, busy, used, mine)) continue;
-    let sc = rates[Math.floor(m / 60)] || 0.4;
-    if (busy.some((b) => x - b.e >= 0 && x - b.e <= 35 * 60000)) sc += 0.08; // right after class or work
-    if (sc > bs) { bs = sc; best = x; }
-  }
+  freeWindows(day, busy).forEach((w) => {
+    for (let x = w.s + 5 * 60000; x <= w.e - 25 * 60000; x += 30 * 60000) {
+      if (!slotOk(x, from, to, busy, used, mine)) continue;
+      let sc = rates[new Date(x).getHours()] || 0.4;
+      if (x - w.s <= 10 * 60000) sc += w.open ? 0.4 : 0.12; // just got out of class or work
+      sc += Math.min(0.2, (w.e - x) / 60000 / 600);
+      // not the same time of day as this task's last pings: a ping that always comes at 7:05 gets tuned out
+      const tod = new Date(x).getHours() * 60 + new Date(x).getMinutes();
+      (avoid || []).forEach((a, k) => { if (Math.abs(a - tod) < 50) sc -= k === 0 ? 0.6 : 0.3; });
+      if (sc > bs) { bs = sc; best = x; }
+    }
+  });
   return best;
 }
 /* urgent: up to 3 a day, start-today: 1, plenty of time: none. Pings already sent today count. Stop once he starts.
@@ -1837,6 +1939,9 @@ const chatSig = (t) => fnv((t.chatUrl || "") + "|" + (t.firstStep || "") + "|" +
 function planWanted() {
   const out = [], now = Date.now(), tk = dayKey(new Date());
   if (S.settings.nudges === false) return out;
+  /* when his schedule changes, re-place every ping instead of keeping the old times */
+  const schedSig = fnv(JSON.stringify(S.settings.busy || []) + "|v3"), replan = S.settings.planSig !== schedSig;
+  S.planSigNext = schedSig;
   const cap = Math.max(1, Math.min(10, +S.settings.nudgeCap || 5)), rates = hourRates(), busy = busyAll(), open = openTasks();
   const existing = new Map(), sent = new Map(), sentAll = [];
   S.tasks.forEach((t) => (t.nudges || []).forEach((n) => {
@@ -1853,6 +1958,7 @@ function planWanted() {
     if (to <= from) continue;
     const ref = today ? now : +hmDate(day, 8, 0), used = today ? sentAll.slice() : [];
     let count = 0;
+    const dayTod = out.filter((o) => o.day !== dk).slice(-2).map((o) => new Date(o.at).getHours() * 60 + new Date(o.at).getMinutes());
     const items = open.map((t) => ({ t, a: assess(t, ref) })).sort((x, y) => y.a.score - x.a.score);
     items.forEach((x) => {
       const plan = parseLocal(x.t.planAt); if (!plan || dayKey(plan) !== dk) return;
@@ -1863,7 +1969,7 @@ function planWanted() {
     });
     // a day that's already half over gets a smaller share of the cap, minus what already went out today
     const dayCap = today ? Math.max(0, Math.min(Math.max(1, Math.round(cap * Math.min(1, (to - from) / (12.5 * 3600000)))), cap - sentAll.length)) : cap;
-    const asks = [];
+    const asks = [], lastTod = dayTod.slice();
     for (const x of items) {
       const t = x.t, a = x.a;
       if (today && t.quietDay === dk) continue;
@@ -1891,11 +1997,17 @@ function planWanted() {
         if (count >= dayCap) break;
         if (q.tier !== tier || q.got !== round || q.got >= q.total || q.done) continue;
         let at = null;
-        for (const v of q.prev) { if (q.mine.indexOf(v) < 0 && slotOk(v, q.start, q.latest, busy, used, q.mine)) { at = v; break; } }
-        if (at == null) at = bestSlot(day, q.start, q.latest, busy, used, q.mine, rates);
+        if (!replan) for (const v of q.prev) { if (q.mine.indexOf(v) < 0 && slotOk(v, q.start, q.latest, busy, used, q.mine)) { at = v; break; } }
+        if (at == null) {
+          const tod = (v) => new Date(v).getHours() * 60 + new Date(v).getMinutes();
+          const earlier = out.filter((o) => o.tid === q.t.id && o.day !== dk).map((o) => o.at).concat((q.t.nudges || []).map((n) => Date.parse(n.at)).filter((v) => v <= now && v > now - 3 * DAY)).sort((a, b) => b - a);
+          at = bestSlot(day, q.start, q.latest, busy, used, q.mine, rates, earlier.slice(0, 2).map(tod).concat(lastTod.slice(0, 1)));
+          if (at != null) lastTod.unshift(tod(at));
+        }
         if (at == null) { q.done = true; continue; }
         q.got++; count++; used.push(at); q.mine.push(at);
-        out.push({ tid: q.t.id, at, day: dk, kind: q.kind, tier: q.a.tier, why: q.a.why, short: q.a.short, hrs: q.a.hrs, first: !hasFirst(q.t), c: chatSig(q.t) });
+        const win = windowAt(day, busy, at);
+        out.push({ tid: q.t.id, at, day: dk, kind: q.kind, tier: q.a.tier, why: q.a.why, short: q.a.short, hrs: q.a.hrs, first: !hasFirst(q.t), c: chatSig(q.t), till: win && !win.last ? win.e : null });
       }
     }
   }
@@ -1920,8 +2032,9 @@ function nudgeTitle(t, w) {
   if (w.kind === "plan") return "▶ Planned: " + name + " · start now";
   if (w.kind === "keep") return "▶ Keep going: " + name + " · " + w.short;
   if (w.last) return "⏰ Last call today: " + name + " · " + w.short;
-  if (w.first) return "▶ 2 min: " + clip(t.firstStep, 56) + " (" + clip(t.title, 28) + ")";
-  return "▶ " + name + " · " + w.short;
+  const free = w.till ? "Free till " + fmtTime(new Date(w.till)) + " · " : "";
+  if (w.first) return "▶ " + free + "2 min: " + clip(t.firstStep, 50) + " (" + clip(t.title, 28) + ")";
+  return "▶ " + free + name + " · " + w.short;
 }
 function nudgeDesc(t, w) {
   const L = [];
@@ -1933,6 +2046,7 @@ function nudgeDesc(t, w) {
   L.push("Clock in and every 10 minutes is a point; 25 minutes grows a plant.");
   if (S.settings.appUrl) L.push("", "Open Game Plan and hit Start: " + S.settings.appUrl);
   L.push("(Game Plan nudge)");
+  if (w.till) L.unshift("You're free until " + fmtTime(new Date(w.till)) + " (" + fmtMin((w.till - w.at) / 60000) + "). Good window for this.", "");
   return L.join("\n");
 }
 /* only one open copy of the app plans at a time, so nothing gets made twice */
@@ -1962,10 +2076,11 @@ async function runPlanner() {
   if (S.planning) { S.planAgain = true; return; }
   S.planning = true;
   try {
-    if (!(await getLease())) { S.leader = false; schedulePlan(160000); return; }
+    if (!(await getLease())) { S.leader = false; schedulePlan(160000); if (S.planAsk) { S.planAsk = false; toast("Game Plan is open somewhere else and that copy plans the nudges. Close the other one, or try again in a couple of minutes.", { ms: 8000 }); } return; }
     S.leader = true;
     try { await busyList(); } catch (e) { noteCalIssue(e); return; }
     const want = planWanted(), now = Date.now(), byTask = new Map();
+    if (S.planSigNext && S.settings.planSig !== S.planSigNext) saveSettings({ planSig: S.planSigNext });
     want.forEach((w) => { const a = byTask.get(w.tid) || []; a.push(w); byTask.set(w.tid, a); });
     let lease = Date.now(), changed = false;
     const gone = new Set();
@@ -2004,6 +2119,7 @@ async function runPlanner() {
     await sweepOrphans(gone);
     if (changed) { S.gcal = {}; BUSY.at = 0; }
     S.lastPlan = Date.now();
+    if (S.planAsk) { S.planAsk = false; const up = []; S.tasks.forEach((t) => { if (t.status === "open") upcomingNudges(t).forEach((x) => up.push(x)); }); const tk2 = dayKey(new Date()); toast("Nudges refreshed: " + up.filter((x) => dayKey(new Date(x.at)) === tk2).length + " left today, " + up.length + " this week."); }
   } catch (e) { /* tries again on the next pass */ }
   finally {
     S.planning = false; scheduleRender();
@@ -2154,7 +2270,7 @@ function normalizeGcal(p) {
   const arr = Array.isArray(p) ? p : (p && (p.events || p.items)) || [];
   return arr.filter((e) => e && e.status !== "cancelled").map((e) => {
     const s = whenOf(e.start);
-    return { uid: e.iCalUID || e.icalUid || e.id || "", title: String(e.summary || "").trim(), start: s && s.date, allDay: !!(s && s.allDay), location: String(e.location || ""), description: String(e.description || "").replace(/<[^>]+>/g, " ") };
+    return { uid: e.iCalUID || e.icalUid || e.id || "", created: Date.parse(e.created || 0) || 0, title: String(e.summary || "").trim(), start: s && s.date, allDay: !!(s && s.allDay), location: String(e.location || ""), description: String(e.description || "").replace(/<[^>]+>/g, " ") };
   }).filter((e) => e.start && e.title);
 }
 function icsText(s) { return String(s || "").replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim(); }
@@ -2211,7 +2327,7 @@ function bsCandidates(events) {
 async function importBrightspace(cands) {
   let added = 0, moved = 0; const created = [];
   cands.forEach((c) => {
-    const ex = S.tasks.get(c.sourceId);
+    const ex = S.tasks.get(c.sourceId) || Array.from(S.tasks.values()).find((t) => t.source === "brightspace" && (t.course || "") === c.course && String(t.title).toLowerCase() === c.title.toLowerCase() && (!t.due || !c.due || Math.abs(Date.parse(t.due) - Date.parse(c.due)) < 10 * DAY));
     if (ex) { const p = {}; if (ex.status === "open" && ex.due !== c.due) { p.due = c.due; moved++; } if (c.url && ex.bsUrl !== c.url) p.bsUrl = c.url; if (Object.keys(p).length) patchTask(ex.id, p); return; }
     if (!c.isWork) return;
     const t = newTask({ id: c.sourceId, title: c.title, course: c.course, due: c.due, source: "brightspace", sourceId: c.sourceId, points: guessPoints(c.title), firstStep: "Open “" + c.title.slice(0, 50) + "” in Brightspace and read the instructions", sized: "guess" });
@@ -2255,6 +2371,8 @@ async function syncGoogle(auto) {
       token = r.payload && r.payload.nextPageToken;
       if (!token) break;
     }
+    const pulled = events.reduce((m, e) => Math.max(m, e.created || 0), 0);
+    if (pulled && pulled !== Date.parse(S.settings.bsPulled || 0)) await saveSettings({ bsPulled: new Date(pulled).toISOString() });
     const res = await importBrightspace(bsCandidates(events));
     if (!auto || res.added || res.moved) toast("Brightspace: " + (res.added || res.moved ? [res.added ? res.added + " new" : "", res.moved ? res.moved + " moved" : ""].filter(Boolean).join(", ") : "nothing new") + ".");
   } catch (e) { if (!auto) toast(calMsg(e)); }
@@ -2272,7 +2390,7 @@ async function importIcsFile(file) {
     const evs = parseICS(await file.text());
     if (!evs.length) { toast("That file has no calendar events in it."); return; }
     const res = await importBrightspace(bsCandidates(evs));
-    toast("Brightspace: " + (res.added ? res.added + " new" : "nothing new") + ".");
+    toast("Brightspace: " + (res.added || res.moved ? [res.added ? res.added + " new" : "", res.moved ? res.moved + " moved" : ""].filter(Boolean).join(", ") : "nothing new") + ".");
   } catch (e) { toast("Couldn't read that file. Download it again from Brightspace."); }
 }
 
@@ -2290,6 +2408,7 @@ function commandPrompt(text) {
     "",
     "Now: " + nowLong() + " (" + TZ + ").",
     "Open tasks: " + JSON.stringify(open),
+    "His weekly schedule (times he can't work; nudges skip these): " + JSON.stringify((S.settings.busy || []).map((b) => ({ label: b.label || "", when: blockText(b) }))),
     "His habits (he checks these off for +1 pt each): " + JSON.stringify(habits),
     "Clocked in right now: " + (running ? JSON.stringify(running) : "no"),
     "Finished in the last 7 days: " + JSON.stringify(recent),
@@ -2313,7 +2432,8 @@ function commandPrompt(text) {
     '- {"op":"remind","id":string or null,"title":string,"at":"YYYY-MM-DDTHH:mm"} buzzes his phone at that time through Google Calendar',
     '- {"op":"checkin","time":"HH:mm" or null} a daily check-in reminder at that time; null turns it off',
     '- {"op":"why","text":string} when he states the big reason behind his goals',
-    '- {"op":"busy","blocks":[{"days":["Mon","Wed","Fri"],"start":"HH:mm","end":"HH:mm","label":string}],"replace":boolean} saves his usual weekly busy times (classes, work shifts, gym) so phone nudges never land in them. replace true when he gives his whole schedule. {"op":"busy","clear":true} removes them all.',
+    '- {"op":"busy","blocks":[{"days":["Mon","Wed","Fri"],"start":"HH:mm","end":"HH:mm","label":string}],"replace":boolean} adds to his weekly schedule: times he CAN\'T work (classes, work shifts, gym, sleep-in mornings). Use it whenever he mentions when he is busy or unavailable. replace true only when he gives his whole schedule. {"op":"busy","remove":"label or part of it"} takes one out. {"op":"busy","clear":true} removes them all.',
+    "- If he instead says when he CAN work (\"I'm free Tue Thu 2 to 6\"), turn it around: add busy blocks labeled \"Not free\" covering the rest of 09:00 to 21:30 on those days, and say so in reply.",
     "- priority on each open task is the app's own ranking: red = urgent, yellow = start today, green = plenty of time. If he asks what to do, point him at the top red or yellow one.",
     "Rules:",
     "- points = effort plus difficulty: 1 trivial (under 15 min), 2 = 15-30 min, 3 = 30-60 min, 5 = 1-2 h or moderately hard, 8 = 2-4 h or hard/high stakes, 13 = over 4 h or several sessions.",
@@ -2481,9 +2601,17 @@ async function applyActions(actions) {
       } else if (op === "busy") {
         const prev = (S.settings.busy || []).slice();
         const blocks = (Array.isArray(a.blocks) ? a.blocks : []).map((b) => ({ days: parseDays(b && b.days), start: normHM(b && b.start), end: normHM(b && b.end), label: String((b && b.label) || "").slice(0, 40) })).filter((b) => b.days.length && b.start && b.end && b.end > b.start);
+        if (a.remove && !blocks.length) {
+          const key = String(a.remove).toLowerCase().trim(), keep = prev.filter((b) => !(key && ((b.label || "").toLowerCase().indexOf(key) >= 0 || blockText(b).toLowerCase().indexOf(key) >= 0)));
+          if (keep.length === prev.length) continue;
+          saveSettings({ busy: keep });
+          chips.push({ k: "cal", text: "Removed " + (prev.length - keep.length) + " from your schedule" });
+          undo.push(() => { saveSettings({ busy: prev }); planSoon(); });
+          nudgeIds.push("busy"); continue;
+        }
         if (!blocks.length && !a.clear) continue;
         saveSettings({ busy: a.clear ? [] : (a.replace ? [] : prev).concat(blocks).slice(0, 20) });
-        chips.push({ k: "cal", text: a.clear ? "Cleared your busy times" : "Nudges skip " + blocks.map((b) => blockText(b) + (b.label ? " (" + b.label + ")" : "")).join(", ") });
+        chips.push({ k: "cal", text: a.clear ? "Cleared your busy times" : "Added to your schedule: " + blocks.map((b) => blockText(b) + (b.label ? " (" + b.label + ")" : "")).join(", ") });
         undo.push(() => { saveSettings({ busy: prev }); planSoon(); });
         nudgeIds.push("busy");
       } else if (op === "why") {
@@ -2503,7 +2631,7 @@ async function send(text) {
   if (!S.db) { toast("Your board isn't loaded yet."); return; }
   unlockAudio();
   /* a bare Claude chat link goes to the task he's clocked in on, or the one to do now */
-  if (CHAT_RE.test(text)) {
+  if (false) {
     const tgt = (S.timer && S.tasks.get(S.timer.taskId)) || heroTask(), key = tgt ? setChatLink(tgt.id, text, true) : null;
     if (tgt && key) {
       const box0 = $("#barInput"); box0.value = ""; autoGrow(); syncSend();
@@ -2513,7 +2641,7 @@ async function send(text) {
     }
   }
   /* any other bare link goes onto the task he's on */
-  if (URL_RE.test(text) && !CHAT_RE.test(text)) {
+  if (URL_RE.test(text)) {
     const tgt = (S.timer && S.tasks.get(S.timer.taskId)) || heroTask(), key = tgt ? addTaskLink(tgt.id, text, null, true) : null;
     if (tgt && key) {
       const box0 = $("#barInput"); box0.value = ""; autoGrow(); syncSend();
@@ -3270,6 +3398,7 @@ function render() {
     $("#feed").innerHTML = view === "garden" ? "" : S.chatMin && !S.busy.send ? (S.chat.length ? '<button type="button" class="link feed-more" data-act="chatmin">Show chat (' + S.chat.length + ")</button>" : "") : renderFeed() + (S.chat.length ? '<button type="button" class="link feed-more feed-hide" data-act="chatmin">Hide chat</button>' : "");
     $("#hero").innerHTML = view === "today" ? renderHero(hero) : "";
     $("#upnext").innerHTML = view === "today" ? renderLineup(hero) : "";
+    $("#daybox").innerHTML = view === "today" ? renderDay() : "";
     $("#calbox").innerHTML = view === "today" ? renderCalendar(st) : "";
     $("#progbox").innerHTML = view === "today" ? '<h2 class="prog-h">Your progress</h2>' + renderProgress(st) : "";
   });
@@ -3363,10 +3492,8 @@ function renderHero(t) {
     '<p class="facts">' + courseTag(t) + (due ? '<span class="due ' + due.cls + '">' + esc(due.text) + "</span>" : "") + '<span class="coin">' + ptsL(t.points) + "</span></p>" + linksRow(t) + timeBar(t, a, true);
   if (miss >= 3) h += '<div class="hint"><span>You let the last ' + miss + ' nudges slide on this one. A smaller first step usually fixes that.</span><button type="button" class="btn sm" data-act="shrink">Make it smaller</button></div>';
   if (!live) h += firstBtn(t, firstOk, false);
-  if (live) h += '<div class="actions"><button type="button" class="btn primary big" data-act="stoptimer">' + ICON.stop + 'Stop <span class="clk" data-clock>0:00</span></button><button type="button" class="btn big" data-act="complete">Done</button></div>' +
-    '<p class="start-note">' + ICON.chat + (t.chatUrl ? '<a href="' + esc(t.chatUrl) + '" target="_blank" rel="noopener">Back to your chat</a>' : '<a href="' + esc(planHref(t)) + '" target="_blank" rel="noopener" data-act="openplan">Open a Claude chat for it</a>') + ' · <button type="button" class="link" data-act="maxfocus">Open the timer</button></p>';
-  else h += '<div class="actions"><a class="btn primary big start" href="' + esc(planHref(t)) + '" target="_blank" rel="noopener" data-act="start">' + ICON.play + (t.chatUrl ? "Resume" : "Start") + '</a><button type="button" class="btn big" data-act="complete">Done</button></div>' +
-    chatRow(t) + planRow(t);
+  if (live) h += '<div class="actions"><button type="button" class="btn primary big" data-act="stoptimer">' + ICON.stop + 'Stop <span class="clk" data-clock>0:00</span></button><button type="button" class="btn big" data-act="complete">Done</button></div>';
+  else h += '<div class="actions"><button type="button" class="btn primary big start" data-act="clockin">' + ICON.play + 'Start</button><button type="button" class="btn big" data-act="complete">Done</button></div>';
   return h + '<div class="now-foot"><button type="button" class="link" data-act="skip">Not now</button><button type="button" class="link" data-act="opentask">Details</button>' + nchip + "</div></article>";
 }
 function rowHtml(x) {
@@ -3480,7 +3607,10 @@ function renderProgress(st) {
   const goal = +S.settings.dailyTarget || 10;
   let goodDays = 0; for (let i = 0; i < 7; i++) { const d = new Date(now); d.setDate(now.getDate() - i); if (((st.days.get(dayKey(d)) || {}).p || 0) >= goal) goodDays++; }
   const wb = dayBand(wP / 7, goal);
-  const tiles = [["Points this week", fmtPts(wP) + '<small> / ' + goal * 7 + "</small>", wb.cls], ["Days at goal", goodDays + '<small> / 7</small>', goodDays >= 4 ? "good" : goodDays >= 2 ? "mid" : "low"], ["Finished this week", wD, ""], ["On time", ot == null ? "–" : ot + "%", ot == null ? "" : ot >= 80 ? "good" : ot >= 50 ? "mid" : "low"]].map((x) => '<div class="tile ' + x[2] + '"><b>' + x[1] + "</b><span>" + x[0] + "</span></div>").join("") + '<p class="week-verdict ' + wb.cls + '"><b>' + wb.word + " week so far.</b> " + wb.line + "</p>";
+  let pP = 0; for (let i = 7; i < 14; i++) { const d = new Date(now); d.setDate(now.getDate() - i); pP += ((st.days.get(dayKey(d)) || {}).p || 0); }
+  const avg = wP / 7, pavg = pP / 7, trend = pavg > 0 ? Math.round(((avg - pavg) / pavg) * 100) : null;
+  const trendTxt = trend == null ? "" : trend === 0 ? " same as last week" : (trend > 0 ? " ▲ " : " ▼ ") + Math.abs(trend) + "% vs last week";
+  const tiles = [["Points this week", fmtPts(wP) + '<small> / ' + goal * 7 + "</small>", wb.cls], ["Days at goal", goodDays + '<small> / 7</small>', goodDays >= 4 ? "good" : goodDays >= 2 ? "mid" : "low"], ["Daily average" + trendTxt, fmtPts(Math.round(avg * 10) / 10) + "<small> pts</small>", trend == null ? "" : trend >= 0 ? "good" : "low"], ["On time", ot == null ? "–" : ot + "%", ot == null ? "" : ot >= 80 ? "good" : ot >= 50 ? "mid" : "low"]].map((x) => '<div class="tile ' + x[2] + '"><b>' + x[1] + "</b><span>" + x[0] + "</span></div>").join("") + '<p class="week-verdict ' + wb.cls + '"><b>' + wb.word + " week so far.</b> " + wD + " finished. " + wb.line + "</p>";
   // done history
   const courses = Array.from(new Set(doneAll.map((t) => t.course).filter(Boolean))).sort();
   const filt = S.progCourse && courses.indexOf(S.progCourse) >= 0 ? S.progCourse : null;
@@ -3496,15 +3626,26 @@ function renderProgress(st) {
   const data = [];
   for (let i = 13; i >= 0; i--) { const d = new Date(now); d.setDate(now.getDate() - i); const v = st.days.get(dayKey(d)) || { p: 0, m: 0 }; data.push({ d, m: v.m + (i === 0 && S.timer ? elapsedMin(S.timer) : 0), p: v.p, today: i === 0 }); }
   const max = Math.max(goal * 1.6, ...data.map((x) => x.p));
-  const bars = data.map((x) => { const b = dayBand(x.p, goal), tip = x.d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ": " + ptsL(x.p) + " · " + b.word; return '<div class="bar-col" tabindex="0" data-tip="' + esc(tip) + '" aria-label="' + esc(tip) + '"><i class="b-' + b.cls + (x.today ? " today" : "") + (x.p ? "" : " zero") + '" style="height:' + (x.p ? Math.max((x.p / max) * 100, 3) : 0) + '%"></i></div>'; }).join("");
+  const byC = new Map();
+  S.tasks.forEach((t) => (t.log || []).forEach((e) => { const pp = +e.p || 0; if (!pp) return; const k = dayKey(new Date(e.at)); let m = byC.get(k); if (!m) { m = new Map(); byC.set(k, m); } const c = t.course || "Other"; m.set(c, (m.get(c) || 0) + pp); }));
+  const cols = new Map();
+  const cCol = (c) => (c === "Other" ? "var(--muted)" : courseColor(c));
+  const bars = data.map((x) => {
+    const b = dayBand(x.p, goal), m = byC.get(dayKey(x.d)) || new Map(), parts = Array.from(m.entries()).sort((u, v) => v[1] - u[1]);
+    parts.forEach((q) => cols.set(q[0], (cols.get(q[0]) || 0) + q[1]));
+    const tip = x.d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ": " + ptsL(x.p) + " · " + b.word + (parts.length ? " (" + parts.map((q) => q[0] + " " + fmtPts(q[1])).join(", ") + ")" : "");
+    return '<div class="bar-col" tabindex="0" data-tip="' + esc(tip) + '" aria-label="' + esc(tip) + '">' + (x.p ? '<span class="stk' + (x.today ? " today" : "") + '" style="height:' + Math.max((x.p / max) * 100, 4).toFixed(1) + '%">' + (parts.length ? parts.map((q) => '<b style="flex:' + q[1] + ";background:" + cCol(q[0]) + '"></b>').join("") : '<b style="flex:1;background:var(--muted)"></b>') + "</span>" : '<i class="zero"></i>') + "</div>";
+  }).join("");
+  const legend = cols.size ? '<p class="stk-key">' + Array.from(cols.entries()).sort((u, v) => v[1] - u[1]).slice(0, 6).map((q) => '<span><i style="background:' + cCol(q[0]) + '"></i>' + esc(q[0]) + " <b>" + fmtPts(q[1]) + "</b></span>").join("") + "</p>" : "";
+  const barsOld = data.map((x) => { const b = dayBand(x.p, goal), tip = x.d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ": " + ptsL(x.p) + " · " + b.word; return '<div class="bar-col" tabindex="0" data-tip="' + esc(tip) + '" aria-label="' + esc(tip) + '"><i class="b-' + b.cls + (x.today ? " today" : "") + (x.p ? "" : " zero") + '" style="height:' + (x.p ? Math.max((x.p / max) * 100, 3) : 0) + '%"></i></div>'; }).join("");
   const dl = data.map((x) => '<span class="' + (x.today ? "is-today" : "") + '">' + esc(x.d.toLocaleDateString([], { weekday: "narrow" })) + "</span>").join("");
   const totalM = data.reduce((s, x) => s + x.p, 0);
-  const chart = '<div class="week"><div class="bars pts-bars" style="--goal:' + ((goal / max) * 100).toFixed(1) + '%"><span class="goal-line" aria-hidden="true"><em>goal ' + goal + "</em></span>" + bars + '</div><div class="days">' + dl + '</div><p class="week-line"><b>' + ptsL(totalM) + "</b> in two weeks" + (st.early != null && Math.abs(st.early) >= 0.1 ? " · finishing " + Math.abs(st.early).toFixed(1) + (st.early > 0 ? " days early" : " days late") + " on average" : "") + "</p></div>";
+  const chart = '<div class="week"><div class="bars pts-bars" style="--goal:' + ((goal / max) * 100).toFixed(1) + '%"><span class="goal-line" aria-hidden="true"><em>goal ' + goal + "</em></span>" + bars + '</div><div class="days">' + dl + "</div>" + legend + '<p class="week-line"><b>' + ptsL(totalM) + "</b> in two weeks, " + fmtPts(Math.round((totalM / 14) * 10) / 10) + " a day on average" + (st.early != null && Math.abs(st.early) >= 0.1 ? " · finishing " + Math.abs(st.early).toFixed(1) + (st.early > 0 ? " days early" : " days late") + " on average" : "") + "</p></div>";
   const ns = nudgeStats(14);
   const nr = '<div class="nreport"><p>' + (ns.sent ? "<b>" + ns.worked + " of " + ns.sent + "</b> nudges in the last two weeks got you working (" + Math.round((ns.worked / ns.sent) * 100) + "%)." + (ns.best ? " Your best time is around " + esc(fmtTime(hmDate(new Date(), ns.best.h, 0))) + ", so the planner leans toward it." : " The planner learns which times work as more come in.") : "Once nudges start firing, this shows which ones got you moving, and the planner shifts them toward the times that work.") + "</p></div>";
-  return '<div class="tiles prog-tiles">' + tiles + "</div>" + '<div class="prog-grid">' +
+  return growthCard(st, goal, avg) + '<div class="tiles prog-tiles">' + tiles + "</div>" + '<div class="prog-grid">' +
     '<section class="pcard"><div class="pc-head"><h3>Finished</h3><span class="muted small">every assignment you’ve done</span></div>' + doneBody + "</section>" +
-    '<div class="folds">' + fold("focus14", "sun", "Points per day", null, chart, true, ptsL(totalM) + " in 2 weeks") + fold("timeclk", "", "Time clocked", null, timeChart(data), false, fmtMin(data.reduce((n, x) => n + x.m, 0)) + " in 2 weeks") + fold("ptsmean", "", "What points mean", null, pointsGuide(goal), true) + fold("nudges", "", "Nudge report", null, nr, false, ns.sent ? ns.worked + " of " + ns.sent + " worked" : "") + "</div></div>";
+    '<div class="folds">' + fold("focus14", "sun", "Points per day, by class", null, chart, true, ptsL(totalM) + " in 2 weeks") + fold("timeclk", "", "Time clocked", null, timeChart(data), false, fmtMin(data.reduce((n, x) => n + x.m, 0)) + " in 2 weeks") + fold("ptsmean", "", "What points mean", null, pointsGuide(goal), false) + fold("nudges", "", "Nudge report", null, nr, false, ns.sent ? ns.worked + " of " + ns.sent + " worked" : "") + "</div></div>";
 }
 
 /* ---------- garden tab ---------- */
@@ -3556,7 +3697,7 @@ function renderFocusLayer() {
   el.innerHTML = '<div class="fl-inner" data-id="' + esc(task.id) + '">' +
     '<div class="fl-top"><div class="fl-head"><p class="fl-kicker"><i class="live-dot"></i>Clocked in</p><h2 class="fl-title">' + esc(task.title) + "</h2></div>" +
     '<button type="button" class="fl-x" data-act="minfocus" aria-label="Back to the board. The timer keeps running.">' + ICON.down + "</button></div>" +
-    '<div class="fl-chat">' + (task.chatUrl ? '<a class="pill-btn" href="' + esc(task.chatUrl) + '" target="_blank" rel="noopener">' + ICON.chat + "Back to your chat</a>" : '<a class="pill-btn" href="' + esc(planHref(task)) + '" target="_blank" rel="noopener" data-act="openplan">' + ICON.chat + "Open a Claude chat for it</a>") + bsBtn(task, "pill-btn") + "</div>" +
+    (task.bsUrl ? '<div class="fl-chat">' + bsBtn(task, "pill-btn") + "</div>" : "") +
     '<div class="fl-stage"><svg viewBox="0 0 220 220" aria-hidden="true"><circle cx="110" cy="110" r="96" class="fl-track"/><circle id="fRing" cx="110" cy="110" r="96" class="fl-ring" stroke-dasharray="' + f1(RING_C) + '" stroke-dashoffset="' + f1(RING_C) + '" transform="rotate(-90 110 110)"/>' +
     '<g transform="translate(110 168)"><g transform="scale(.9)">' + potSVG() + '</g><g transform="translate(0 -4)"><g class="sway"><g id="fPlant" transform="scale(.82)"></g></g></g></g></svg></div>' +
     '<div class="fl-clock" data-clock aria-live="off">0:00</div>' +
@@ -3565,7 +3706,6 @@ function renderFocusLayer() {
     '<div class="fl-harvest" id="fHarvest"></div>' +
     '<div class="ask" data-ask hidden><span>Still working? You’ve been clocked in a while.</span><div class="row"><button type="button" class="btn sm primary" data-act="stillhere">Still going</button><button type="button" class="btn sm" data-act="adjust">I stopped earlier</button></div></div>' +
     (S.adjust ? '<form class="adjust" data-form="adjust"><label for="adjMin">How many minutes did you actually work?</label><div class="row"><input id="adjMin" name="m" type="number" min="1" max="600" value="' + Math.max(1, Math.floor(mins)) + '"><button class="btn sm primary" type="submit">Save and stop</button><button type="button" class="link" data-act="adjustno">Cancel</button></div></form>' : "") +
-    (!task.chatUrl ? linkForm(task, true) : "") +
     (!hasFirst(task) ? '<div class="fl-first">' + ICON.spark + "<div><small>First step</small>" + esc(task.firstStep) + "</div></div>" : "") +
     '<div class="fl-actions"><button type="button" class="btn primary big" data-act="stoptimer">' + ICON.stop + 'Stop and save</button><button type="button" class="btn big" data-act="complete">' + ICON.check + "Done</button></div>" +
     '<p class="fl-foot">Stop whenever you’re done. It saves the time, gives you the points, and plants what grew. <button type="button" class="link" data-act="adjust">Forgot to stop?</button></p>' +
@@ -3597,11 +3737,10 @@ function renderTaskPanel(t) {
     '<p class="facts">' + courseTag(t) + (due ? '<span class="due ' + (done ? "" : due.cls) + '">' + esc(due.text) + "</span>" : "<span>No due date</span>") + '<span class="coin">' + ptsL(t.points) + "</span><span>~" + fmtMin(a.est) + "</span></p>";
   if (!done) h += '<div class="tp-why"><b>Why it’s ranked here</b><p>' + esc(a.why) + "</p></div>";
   h += '<div class="tp-actions">' + (done ? '<button type="button" class="btn primary" data-act="reopen">Not done, put it back</button>' :
-    (live ? '<button type="button" class="btn primary" data-act="stoptimer">' + ICON.stop + 'Stop <span class="clk" data-clock>0:00</span></button>' : '<a class="btn primary" href="' + esc(planHref(t)) + '" target="_blank" rel="noopener" data-act="start">' + ICON.play + 'Start</a><button type="button" class="btn" data-act="clockin">' + ICON.play + "Just the timer</button>") +
+    (live ? '<button type="button" class="btn primary" data-act="stoptimer">' + ICON.stop + 'Stop <span class="clk" data-clock>0:00</span></button>' : '<button type="button" class="btn primary" data-act="clockin">' + ICON.play + "Start</button>") +
     '<button type="button" class="btn" data-act="complete">' + ICON.check + "Done</button>") + bsBtn(t, "btn") + "</div>";
   if (!done) h += firstBtn(t, firstOk, done) + planRow(t);
   h += '<section class="tp-sec"><h3>Links</h3>' + linksRow(t) + "</section>";
-  h += '<section class="tp-sec" id="tpChat"><h3>Claude chat</h3>' + (t.chatUrl ? '<p class="muted small">Start reopens this chat right where you left off.</p><div class="row"><a class="btn sm" href="' + esc(t.chatUrl) + '" target="_blank" rel="noopener">' + ICON.chat + 'Open it</a><button type="button" class="link" data-act="unlink">Forget this link</button></div>' + linkForm(t, false) : '<p class="muted small">Start opens a new Claude chat with just this task. Copy that chat’s link from Claude, paste it here, and Start reopens it from then on.</p>' + linkForm(t, false)) + "</section>";
   h += '<section class="tp-sec"><h3>Time</h3>' + timeBar(t, a, true) + (sessions.length ? '<ul class="tp-list">' + sessions.slice(0, 10).map((e) => { const pl = Array.isArray(e.plants) ? e.plants.map((q) => plantName(q.plant, q.gold)).join(", ") : e.plant ? plantName(e.plant, e.gold) : ""; return "<li><span>" + esc(fmtWhenShort(new Date(e.at))) + "</span><span>" + fmtMin(e.m) + (+e.p ? " · +" + fmtPts(e.p) : "") + (pl ? " · " + esc(pl) : "") + "</span></li>"; }).join("") + "</ul>" : '<p class="muted small">Nothing clocked yet. ▶ clocks you in.</p>') + "</section>";
   h += '<section class="tp-sec"><h3>Nudges</h3>';
   if (S.settings.nudges === false) h += '<p class="muted small">Nudges are off in Settings.</p>';
@@ -3635,7 +3774,11 @@ function settingsHtml() {
   const cap = +s.nudgeCap || 5;
   let bs;
   if (s.bsCalendarId) {
-    bs = '<p><span class="ok">Connected.</span> Checked ' + esc(ago(s.lastSync)) + '.</p><div class="row"><button type="button" class="btn sm" data-act="sync"' + (S.busy.sync ? " disabled" : "") + ">" + (S.busy.sync ? "Checking…" : "Check now") + '</button><button type="button" class="link" data-act="disconnect">Disconnect</button></div>';
+    const stale = s.bsPulled && Date.now() - Date.parse(s.bsPulled) > 12 * 3600000;
+    bs = '<p><span class="ok">Connected.</span> Checked ' + esc(ago(s.lastSync)) + '.</p>' +
+      (s.bsPulled ? '<p class="small' + (stale ? ' warn-text' : ' muted') + '">Google last copied new work from Brightspace ' + esc(ago(s.bsPulled)) + '. Google does this on its own schedule, so brand-new assignments can take a day or two to show up.</p>' : "") +
+      '<div class="row"><button type="button" class="btn sm" data-act="sync"' + (S.busy.sync ? " disabled" : "") + ">" + (S.busy.sync ? "Checking…" : "Check now") + '</button><button type="button" class="link" data-act="disconnect">Disconnect</button></div>' +
+      '<p class="muted small"><b>Missing something?</b> ' + (s.bsFeedUrl ? '<button type="button" class="link" data-act="copyfeed">Copy your Brightspace link</button>, paste it in a browser tab (a file downloads), then ' : "In Brightspace, Calendar, Subscribe, open the link (a file downloads), then ") + '<label class="link" for="icsFile" style="cursor:pointer">upload that file here</label>. Pulls everything in right away.<input type="file" id="icsFile" accept=".ics,text/calendar" class="sr-only"></p>';
   } else {
     bs = '<p class="muted small">Pull class deadlines in by themselves. One-time setup:</p><ol class="steps">' +
       (s.bsFeedUrl ? '<li><button type="button" class="btn sm" data-act="copyfeed">Copy my Brightspace link</button></li>' : "<li>In Brightspace, open Calendar, press Subscribe, copy the link.</li>") +
@@ -3715,6 +3858,19 @@ function chatRow(t) {
 }
 
 /* turning points into a verdict: the daily goal is the line between a good day and a slow one */
+/* today's points stacking toward the goal, and how far the garden's next tree is at his pace */
+function growthCard(st, goal, avg) {
+  const tk = dayKey(new Date()), gd = gardenData(), parts = [];
+  S.tasks.forEach((t) => (t.log || []).forEach((e) => { const p = +e.p || 0; if (!p || dayKey(new Date(e.at)) !== tk) return; parts.push({ p, at: e.at, c: t.course ? courseColor(t.course) : "var(--accent)", tip: (e.k === "done" ? "Finished " : e.k === "first" ? "First step on " : "Time on ") + t.title + " · +" + ptsL(p), done: e.k === "done" }); }));
+  parts.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const got = parts.reduce((n, x) => n + x.p, 0), rest = Math.max(0, goal - got), doneN = parts.filter((x) => x.done).length;
+  const stack = '<div class="tstack" role="img" aria-label="' + esc(fmtPts(got) + " of " + goal + " points today") + '">' + parts.map((x) => '<span class="ts-b' + (x.done ? " done" : "") + '" style="flex:' + x.p + ";background:" + x.c + '" tabindex="0" data-tip="' + esc(x.tip) + '">' + (x.p >= goal / 6 ? "+" + fmtPts(x.p) : "") + "</span>").join("") + (rest ? '<span class="ts-rest" style="flex:' + rest + '"></span>' : "") + "</div>";
+  const need = Math.max(0, gd.curNeed - gd.curHave), eta = need <= 0 ? "about to bloom" : avg >= 0.5 ? "about " + Math.max(1, Math.ceil(need / avg)) + (Math.ceil(need / avg) === 1 ? " day" : " days") + " away at your pace" : "finish something to get it growing";
+  const nextTask = openTasks().map((t) => ({ t, a: assess(t) })).sort((x, y) => y.a.score - x.a.score)[0];
+  const jump = nextTask && need > 0 ? " Finishing “" + esc(clip(nextTask.t.title, 34)) + "” adds " + ptsL(nextTask.t.points) + (nextTask.t.points >= need ? ", enough to bloom it." : ".") : "";
+  return '<section class="growth"><div class="gr-col"><p class="gr-k">Today</p><p class="gr-big">' + fmtPts(got) + '<small> of ' + goal + " pts</small></p>" + stack + '<p class="gr-sub">' + (got >= goal ? "Goal hit. " : fmtPts(rest) + " to go. ") + (doneN ? doneN + (doneN === 1 ? " task" : " tasks") + " finished today." : "Each block is something you did today.") + "</p></div>" +
+    '<div class="gr-col"><p class="gr-k">Next tree in your garden</p><p class="gr-big">' + fmtPts(gd.curHave) + "<small> of " + gd.curNeed + ' pts</small></p><span class="meter"><i style="width:' + (gd.frac * 100).toFixed(1) + '%"></i></span><p class="gr-sub">' + fmtPts(need) + " to bloom, " + eta + "." + jump + "</p></div></section>";
+}
 function dayBand(p, goal) {
   if (p >= goal * 1.5) return { cls: "great", word: "Great", line: "Well past your goal. This is the pace that keeps everything ahead of deadlines." };
   if (p >= goal) return { cls: "good", word: "Good", line: "At or above your daily goal. Keep finishing things at this rate." };
@@ -3741,9 +3897,71 @@ function timeChart(data) {
   return '<div class="week"><div class="bars">' + bars + '</div><div class="days">' + dl + '</div><p class="week-line"><b>' + fmtMin(total) + "</b> on the timer over " + days + (days === 1 ? " day" : " days") + (days ? ", about " + fmtMin(total / days) + " on days you used it" : "") + ". Just for the record; points are what count.</p></div>";
 }
 
+/* ---------- your day: when you're busy, when you're free, and where the nudges land ---------- */
+function dayBlocks(day) {
+  const out = [], s0 = +hmDate(day, 0, 0), e0 = s0 + DAY;
+  (Array.isArray(S.settings.busy) ? S.settings.busy : []).forEach((b) => {
+    if (!b || !Array.isArray(b.days) || b.days.indexOf(day.getDay()) < 0) return;
+    const s = parseHM(day, b.start), e = parseHM(day, b.end);
+    if (s && e && e > s) out.push({ s: +s, e: +e, label: b.label || "Busy", kind: "sched" });
+  });
+  (BUSY.raw || []).forEach((ev) => {
+    if (ev.allDay || ev.free || NUDGE_RE.test(ev.title) || /^Game Plan/.test(ev.title)) return;
+    if (ev.e > s0 && ev.s < e0) out.push({ s: Math.max(ev.s, s0), e: Math.min(Math.max(ev.e, ev.s + 15 * 60000), e0), label: ev.title || "Event", kind: "cal" });
+  });
+  return out.sort((a, b) => a.s - b.s);
+}
+function nudgeList(today, n, nextN) {
+  if (S.settings.nudges === false) return '<p class="dl-next">' + ICON.bell + "<span>Nudges are off in Settings.</span></p>";
+  const tk = dayKey(new Date()), later = [];
+  S.tasks.forEach((t) => { if (t.status === "open") (t.nudges || []).forEach((nu) => { const at = Date.parse(nu.at); if (at > n && dayKey(new Date(at)) !== tk) later.push({ at, t }); }); });
+  later.sort((a, b) => a.at - b.at);
+  const row = (x) => '<li class="' + (x.at <= n ? "past" : x === nextN ? "next" : "") + '" data-id="' + esc(x.t.id) + '"><span class="dl-t">' + ICON.bell + esc(fmtTime(new Date(x.at))) + '</span><button type="button" class="dl-task" data-act="pick">' + esc(x.t.title) + "</button>" + (x.at <= n ? "<em>sent</em>" : x === nextN ? "<em>next</em>" : "") + "</li>";
+  let h = '<div class="dl-hrow"><p class="dl-h">Today’s nudges' + (today.length ? " (" + today.length + ")" : "") + '</p><button type="button" class="link dl-ref" data-act="replan"' + (S.planning ? " disabled" : "") + ">" + (S.planning ? "Refreshing…" : "Refresh nudges") + "</button></div>";
+  h += today.length ? '<ul class="dl-list">' + today.map(row).join("") + "</ul>" : '<p class="dl-none">' + (S.mcp ? "None planned for today. Hit Refresh nudges to plan them now." : "Nudges need Game Plan open inside Claude with Google Calendar connected.") + "</p>";
+  if (S.calStatus && !S.calStatus.ok) h += '<p class="dl-none warn-text">' + esc(S.calStatus.msg) + "</p>";
+  if (later.length) {
+    if (S.nudgeWeek) {
+      let last = "";
+      h += later.map((x) => { const d = new Date(x.at), k = dayKey(d), head = k !== last ? (last ? "</ul>" : "") + '<p class="dl-day">' + esc(d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })) + '</p><ul class="dl-list">' : ""; last = k; return head + row(x); }).join("") + "</ul>";
+    }
+    h += '<button type="button" class="link dl-more" data-act="nudgeweek">' + (S.nudgeWeek ? "Hide the rest of the week" : "Show the rest of the week (" + later.length + ")") + "</button>";
+  }
+  return h;
+}
+function renderDay() {
+  const now = new Date(), n = +now, t0 = +hmDate(now, 8, 0), t1 = +hmDate(now, 23, 0), span = t1 - t0, pct = (x) => Math.max(0, Math.min(100, ((x - t0) / span) * 100));
+  const blocks = dayBlocks(now), wins = freeWindows(now, busyAll()), tk = dayKey(now), sched = Array.isArray(S.settings.busy) ? S.settings.busy : [];
+  const nudges = [];
+  S.tasks.forEach((t) => { if (t.status === "open") (t.nudges || []).forEach((nu) => { const at = Date.parse(nu.at); if (dayKey(new Date(at)) === tk) nudges.push({ at, t }); }); });
+  nudges.sort((a, b) => a.at - b.at);
+  const seg = (cls, s, e, tip, text) => { const l = pct(s), w = pct(e) - l; return w <= 0 ? "" : '<span class="dl-seg ' + cls + '" style="left:' + l.toFixed(2) + "%;width:" + w.toFixed(2) + '%" tabindex="0" data-tip="' + esc(tip) + '">' + (text && w > 13 ? "<em>" + esc(text) + "</em>" : "") + "</span>"; };
+  let track = wins.map((w) => seg("free", w.s, w.e, "Free " + fmtTime(new Date(w.s)) + " to " + fmtTime(new Date(w.e)) + " · " + fmtMin((w.e - w.s) / 60000), "")).join("") +
+    blocks.map((b) => seg(b.kind, b.s, b.e, b.label + " · " + fmtTime(new Date(b.s)) + " to " + fmtTime(new Date(b.e)), b.label)).join("") +
+    nudges.map((x) => '<span class="dl-pin' + (x.at <= n ? " past" : "") + '" style="left:' + pct(x.at).toFixed(2) + '%" tabindex="0" data-tip="' + esc((x.at <= n ? "Nudged " : "Nudge at ") + fmtTime(new Date(x.at)) + ": " + x.t.title) + '">' + ICON.bell + "</span>").join("");
+  if (n > t0 && n < t1) track += '<span class="dl-now" style="left:' + pct(n).toFixed(2) + '%" aria-hidden="true"></span>';
+  const ticks = [8, 11, 14, 17, 20, 23].map((h) => '<span style="left:' + pct(+hmDate(now, h, 0)).toFixed(2) + '%">' + esc(fmtTime(hmDate(now, h, 0)).replace(/\s?([AP])M/i, (m, a) => a.toLowerCase())) + "</span>").join("");
+  const cur = blocks.find((b) => n >= b.s && n < b.e), win = wins.find((w) => n >= w.s && n < w.e), nextWin = wins.find((w) => w.s > n), nextN = nudges.find((x) => x.at > n);
+  let status;
+  if (cur) status = "<b>Busy until " + esc(fmtTime(new Date(cur.e))) + "</b> (" + esc(cur.label) + ")." + (nextWin ? " Next free block starts " + esc(fmtTime(new Date(nextWin.s))) + "." : "");
+  else if (win) status = "<b>Free " + (win.last ? "for the rest of the day" : "until " + esc(fmtTime(new Date(win.e)))) + "</b> · " + fmtMin((win.e - n) / 60000) + " open.";
+  else status = "<b>Quiet hours.</b> Nudges only land between 9 AM and 9:30 PM.";
+  const nline = S.settings.nudges === false ? "Nudges are off in Settings." : nextN ? "Next nudge at <b>" + esc(fmtTime(new Date(nextN.at))) + "</b>: " + esc(nextN.t.title) : nudges.length ? "No more nudges today." : "No nudges planned today.";
+  const list = sched.length ? '<ul class="sch-list">' + sched.map((b, i) => '<li><span><b>' + esc(b.label || "Busy") + "</b> " + esc(blockText(b)) + '</span><button type="button" class="lk-x" data-act="delbusy" data-i="' + i + '" aria-label="' + esc("Remove " + (b.label || "busy time")) + '">' + ICON.del + "</button></li>").join("") + "</ul>" : '<p class="sch-empty">Add your classes and work shifts. Nudges will only land in the free time between them, right as a free block opens.</p>';
+  const days = S.schedDays || [1, 2, 3, 4, 5];
+  const form = S.schedAdd ? '<form class="sch-form" data-form="sched"><input id="schLabel" name="label" maxlength="40" placeholder="What is it? (CS 350, Con Ed…)" autocomplete="off" aria-label="Name">' +
+    '<div class="sch-days" role="group" aria-label="Days">' + ["S", "M", "T", "W", "T", "F", "S"].map((d, i) => '<button type="button" class="sch-d' + (days.indexOf(i) >= 0 ? " on" : "") + '" data-act="schedday" data-d="' + i + '" aria-pressed="' + (days.indexOf(i) >= 0) + '" aria-label="' + ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i] + '">' + d + "</button>").join("") + "</div>" +
+    '<div class="sch-times"><input id="schStart" name="start" type="time" value="09:00" aria-label="Starts"><span>to</span><input id="schEnd" name="end" type="time" value="10:30" aria-label="Ends"><button class="btn sm primary" type="submit">Add</button><button type="button" class="link" data-act="schedadd">Cancel</button></div></form>' :
+    '<button type="button" class="lk-add" data-act="schedadd">' + ICON.add + "Add class or work</button>";
+  return '<section class="daycard"><div class="pc-head"><h3>Your day</h3><span class="muted small">' + esc(now.toLocaleDateString([], { weekday: "long" })) + "</span></div>" +
+    '<div class="dl"><div class="dl-track">' + track + '</div><div class="dl-ticks">' + ticks + "</div></div>" +
+    '<p class="dl-status">' + status + "</p>" + nudgeList(nudges, n, nextN) +
+    '<div class="dl-key"><span><i class="k-free"></i>Free</span><span><i class="k-sched"></i>Your schedule</span><span><i class="k-cal"></i>Google Calendar</span></div>' +
+    fold("sched", "", "My weekly schedule", sched.length || null, list + form, !sched.length, "nudges skip these") + "</section>";
+}
 function linksRow(t) {
   const links = t.links || [], adding = S.addLink === t.id;
-  let h = '<div class="links-row">' + (t.bsUrl ? bsBtn(t, "bs-pill") : "") +
+  let h = '<div class="links-row">' + (t.bsUrl ? bsBtn(t, "bs-pill") : "") + (t.chatUrl ? '<span class="lk"><a class="lk-pill solo" href="' + esc(t.chatUrl) + '" target="_blank" rel="noopener">' + ICON.chat + "Claude chat</a></span>" : "") +
     links.map((l, i) => '<span class="lk"><a class="lk-pill" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + ICON.ext + esc(l.label) + '</a><button type="button" class="lk-x" data-act="dellink" data-i="' + i + '" aria-label="' + esc("Remove " + l.label) + '">' + ICON.del + "</button></span>").join("") +
     (adding ? "" : '<button type="button" class="lk-add" data-act="addlink">' + ICON.add + "Link</button>") + "</div>";
   if (adding) h += '<form class="lk-form" data-form="tasklink"><input id="tl-' + esc(t.id) + '" name="url" type="url" inputmode="url" autocomplete="off" placeholder="Paste a link (doc, video, rubric…)" aria-label="Link to add"><button class="btn sm" type="submit">Add</button><button type="button" class="link" data-act="addlink">Cancel</button></form>';
@@ -3763,7 +3981,7 @@ function renderDock() {
   el.innerHTML = '<section class="dock" data-id="' + esc(task.id) + '"><div class="dk-art"><svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r="70" class="dk-track"/><circle id="dkRing" cx="80" cy="80" r="70" class="dk-ring" stroke-dasharray="' + f1(DK_C) + '" stroke-dashoffset="' + f1(DK_C) + '" transform="rotate(-90 80 80)"/><g transform="translate(80 122)"><g transform="scale(.62)">' + potSVG() + '</g><g transform="translate(0 -3) scale(.56)"><g class="sway" id="dkPlant"></g></g></g></svg></div>' +
     '<div class="dk-main"><p class="dk-k"><i class="live-dot"></i>Clocked in</p><p class="dk-title">' + esc(task.title) + '</p><div class="dk-clock" data-clock>0:00</div><p class="dk-meta"><b id="dkPts">+0 pts</b> <span id="dkStage"></span></p>' +
     '<div class="dk-actions"><button type="button" class="btn sm primary" data-act="stoptimer">' + ICON.stop + 'Stop and save</button><button type="button" class="btn sm" data-act="complete">' + ICON.check + "Done</button>" +
-    (task.chatUrl ? '<a class="btn sm" href="' + esc(task.chatUrl) + '" target="_blank" rel="noopener">' + ICON.chat + "Chat</a>" : "") + '<button type="button" class="link" data-act="maxfocus">Full screen</button></div>' +
+    '<button type="button" class="link" data-act="maxfocus">Full screen</button></div>' +
     '<div class="ask" data-ask hidden><span>Still working?</span><div class="row"><button type="button" class="btn sm primary" data-act="stillhere">Still going</button><button type="button" class="btn sm" data-act="adjust">I stopped earlier</button></div></div></div></section>';
   tick();
 }
@@ -3772,7 +3990,7 @@ function chipHtml(c) { return '<span class="chip ' + esc(c.k) + '">' + (ICON[c.k
 function quickHtml(q) {
   if (q.act === "qstart") {
     const t = S.tasks.get(q.id); if (!t || t.status !== "open") return "";
-    return '<a class="qchip go" href="' + esc(planHref(t)) + '" target="_blank" rel="noopener" data-act="qstart" data-tid="' + esc(t.id) + '">' + esc(q.label) + "</a>";
+    return '<button type="button" class="qchip go" data-act="qstart" data-tid="' + esc(t.id) + '">' + esc(q.label) + "</button>";
   }
   return '<button type="button" class="qchip" data-act="qfill" data-text="' + esc(q.text) + '">' + esc(q.label) + "</button>";
 }
@@ -3951,7 +4169,7 @@ const acts = {
   /* tapping a task makes it the one to do now */
   pick(el, id) { const t = S.tasks.get(id); if (!t || t.status !== "open") return; chooseTask(id); S.editLink = null; scheduleRender(); const h = $("#hero"); if (h) h.scrollIntoView({ behavior: "smooth", block: "start" }); },
   editlink(el, id) { S.editLink = S.editLink === id ? null : id; scheduleRender(); if (S.editLink) setTimeout(() => { const i = document.getElementById("hl-" + id); if (i) i.focus(); }, 60); },
-  qstart(el) { const id = el.dataset.tid, t = S.tasks.get(id); if (!t || t.status !== "open") return; chooseTask(id); acts.start(el, id); },
+  qstart(el) { const id = el.dataset.tid, t = S.tasks.get(id); if (!t || t.status !== "open") return; chooseTask(id); startFocus(id); },
   openplan(el, id) { const t = S.tasks.get(id || (S.timer && S.timer.taskId)); if (t && !t.chatUrl) copyText(gamePlanPrompt(t)); },
   stoptimer() { S.adjust = false; stopTimer(true); },
   stillhere() { stillHere(); chime("tap"); toast("Got it. Keep going."); },
@@ -4025,12 +4243,20 @@ const acts = {
   },
   addlink(el, id) { S.addLink = S.addLink === id ? null : id; scheduleRender(); if (S.addLink) setTimeout(() => { const i = document.getElementById("tl-" + id); if (i) i.focus(); }, 60); },
   dellink(el, id) { removeTaskLink(id, +el.dataset.i); },
+  schedadd() { S.schedAdd = !S.schedAdd; scheduleRender(); if (S.schedAdd) setTimeout(() => { const i = $("#schLabel"); if (i) i.focus(); }, 60); },
+  schedday(el) { const d = +el.dataset.d, cur = (S.schedDays || [1, 2, 3, 4, 5]).slice(), i = cur.indexOf(d); if (i >= 0) cur.splice(i, 1); else cur.push(d); S.schedDays = cur; scheduleRender(); },
+  nudgeweek() { S.nudgeWeek = !S.nudgeWeek; scheduleRender(); },
+  replan() {
+    if (!S.mcp) { toast("Open Game Plan inside Claude to plan nudges."); return; }
+    S.planAsk = true; S.calWarned = false; BUSY.at = 0; S.settings = Object.assign({}, S.settings, { planSig: null });
+    schedulePlan(0); S.planning || scheduleRender(); toast("Re-planning your nudges…");
+  },
   showall() { S.showAll = !S.showAll; scheduleRender(); },
   fold(el) { const k = el.dataset.sec, open = el.getAttribute("aria-expanded") === "true"; S.folds = Object.assign({}, S.folds, { [k]: !open }); store.set("gp.folds", S.folds); scheduleRender(); },
   sync() { syncGoogle(false); },
   detect() { detectBrightspace(true); },
   opengcal() { S.connecting = true; },
-  copyfeed() { copyText(S.settings.bsFeedUrl || "").then((ok) => toast(ok ? "Copied. Now open Google Calendar." : "Couldn't copy. Grab the link from Brightspace instead.")); },
+  copyfeed() { copyText(S.settings.bsFeedUrl || "").then((ok) => toast(ok ? (S.settings.bsCalendarId ? "Copied. Paste it in a new browser tab, then upload the file." : "Copied. Now open Google Calendar.") : "Couldn't copy. Grab the link from Brightspace instead.")); },
   disconnect() { saveSettings({ bsCalendarId: null, bsCalendarName: "", lastSync: null }); toast("Brightspace disconnected."); },
   clearask() { S.confirmClear = true; scheduleRender(); },
   clearno() { S.confirmClear = false; scheduleRender(); },
@@ -4051,6 +4277,15 @@ const acts = {
   calreload() { loadMonthEvents(true); },
 };
 const forms = {
+  sched(f) {
+    const fd = new FormData(f), start = normHM(fd.get("start")), end = normHM(fd.get("end")), days = (S.schedDays || [1, 2, 3, 4, 5]).slice().sort();
+    if (!days.length) { toast("Pick at least one day."); return; }
+    if (!start || !end || end <= start) { toast("Set a start and an end time, with the end later."); return; }
+    const prev = (S.settings.busy || []).slice(), b = { days, start, end, label: String(fd.get("label") || "").trim().slice(0, 40) };
+    saveSettings({ busy: prev.concat([b]).slice(0, 30) }); planSoon(); f.reset(); S.schedAdd = false;
+    const key = pushUndo("add " + (b.label || "busy time"), [() => { saveSettings({ busy: prev }); planSoon(); }]);
+    toast("Added " + esc(blockText(b)) + (b.label ? " · " + esc(b.label) : "") + ". Nudges now skip it.", { html: true, action: "Undo", key, onAction: () => runUndo(key) });
+  },
   link(f, id) {
     const url = String(new FormData(f).get("url") || "").trim();
     if (!url) { toast("Paste the chat's link first."); return; }
