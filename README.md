@@ -1,61 +1,87 @@
 # Game Plan
 
-Open your Mac and already know what to do. Game Plan shows **one assignment and the first physical action**, and one key (Enter) opens the exact assignment and starts the timer. While you work, the step owns the screen. If you drift to a distraction mid-block, a return screen sends you back to the tab you left.
+One screen, one next thing. A local planner that runs on your Mac, reads and writes an Obsidian
+vault, and keeps every finished task linked up to the goal it serves.
 
-```
-Brightspace calendar ──(7:45am sync)──▶ Obsidian vault ◀──▶ Game Plan server (127.0.0.1:4317)
-                                     01 Classes/*/Assignments/*.md          │
-                         System/gameplan.json (session, history, settings)  │
-        ┌────────────────────────┬──────────────────────┬──────────────────┼─────────────────┐
-   app window (Now/Plan/History)  menu bar timer (Swift)  Chrome extension   phone (paired, same Wi-Fi)
-```
+![The main screen: one task to do now, the week, and progress](docs/screenshots/now.png)
 
-## Launch
+| On the clock | Done |
+|---|---|
+| ![Timer running with the first step you typed](docs/screenshots/clock.png) | ![Done: points walk up the chain to the goal](docs/screenshots/done.png) |
 
-```bash
-cd ~/Projects/game-plan/desktop
-zsh install.sh            # server at login, nudges, Game Plan.app, menu bar timer. Add --login to start the timer at login.
-open http://127.0.0.1:4317
-```
-Then, from anywhere: **⌘Space → Game Plan**, or **⌥⌘G** once the menu bar timer is running.
+*Screenshots use a made-up demo vault (`desktop/tests/demo.py`).*
 
-### One-time setup
-1. **Chrome extension** (distraction return screen): `chrome://extensions` → Developer mode → **Load unpacked** → pick `desktop/extension`. Then Game Plan → Settings → **Test protection** should say it passed.
-2. **Menu bar timer**: `install.sh` builds and opens it (needs `xcode-select --install`). Settings → "Start menu bar app at login" makes it permanent.
-3. **Unlock prompts** (optional): Settings → set study windows and quiet hours → "Prompt me when I unlock during a study window". Add the countdown if you want it to open and start on its own.
-4. **Phone** (optional): Settings → Phone → "Let paired phones connect" → **Pair a phone** → scan the QR code on the same Wi-Fi → Share → Add to Home Screen. Download the **.ics** there for study-block reminders that open the current task.
-5. **Class folder docs** (optional): System Settings → Privacy & Security → Full Disk Access → add `/usr/bin/python3`.
+## What it does
 
-### Uninstall
-`zsh install.sh --uninstall` removes the services, Game Plan.app and the menu bar app. Remove the extension in `chrome://extensions`. Your vault isn't touched.
+- **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. Before **Start** you type your first step and how many minutes you think it takes. **Stuck** gives a question, then a hint, then a worked example of a *similar* problem, one at a time. **Submit** opens the assignment page. **Done** plays one short burst and shows the chain: `+5 pts → class → goal → bigger goal`, plus "you guessed 40 min, took 55."
+- **The week.** Everything due in the next 7 days as blocks grouped by class. Blocks shrink as you finish them.
+- **Progress.** Points per day for 14 days by class, today's points against a goal of 10 (with your reward when you hit it), and a not-zero streak. Zero days show as 0.
+- **One box for everything.** Type what you're doing, need to do, or thinking. Claude files it as a task, a finished thing, or an idea, links it to the right class and goal, and sizes it. Ideas open **Spitball**: Claude answers with sharp questions or a counter-argument, never a finished answer.
+- **Night check-in** after 9pm and a **Sunday review**, both saved to the vault. One experiment at a time from `System/experiments.md`.
+- **Runs on its own.** Starts at login. Writes each day's note at midnight (zero days too). At most 4 macOS notifications a day, only in free time from `System/schedule.md`, never within 90 minutes of a Start, and fewer for tasks you keep ignoring.
+- **Blocker** (Chrome extension). While the timer runs, distracting sites show a back-to-work screen. From 10:30pm to 7am, streaming and short-video sites need a typed sentence to open: friction, not a wall.
 
 ## How it works
 
-- **Now** (key 1): one recommended assignment (deadline, size, pins, importance, saved next steps), the step as the biggest text, and *Open X & start*. If the link is missing, you can paste it inline or start without it. Coming back to something you'd started shows your saved next step. Press C to choose another.
-- **Timer**: a 2-minute start by default, with "keep going" for the rest of a 25-minute block, or 25 minutes directly. There's one session for every window, the menu bar and the phone. Double clicks and retries are deduplicated by request id. Pauses, breaks and work are tracked separately. Lock or sleep pauses it. If nothing has checked in for 6 minutes, the clock stops at the last heartbeat, so an overnight sleep never counts. You can correct a wrong block in History.
-- **After a block**, it asks "What moved forward?" with one-tap checkpoints written for that assignment (Claude writes them during background sizing; otherwise they're picked by assignment type), plus an optional next step. Credit is paid once per session: 1 pt per 5 min, +2 for a checkpoint (it needs a real minute of work). Confirming you submitted pays the assignment's size, with +50% if it's a day early. Opening the submission page and confirming you submitted are separate steps.
-- **Rewards**: point rewards you choose (History → Rewards), plus a small reward tied to this block's checkpoint (for example, a 5-min music break once you've captured the questions).
-- **Plan** (key 2): workload vs. focus time per day and course. Click a day to act on it. "I have 30m" cuts big projects into a checkpoint that fits. You can pin, set academic importance (separate from app points) and plan a work day. **Real Brightspace deadlines are never rewritten.**
-- **History** (key 3): focused minutes per day, and what you produced alongside the time.
-- **Protection**: during an active block, the sites you choose (default Instagram, YouTube Shorts, TikTok, X, Reddit) show "You were *opening the prompt and jotting the two questions* for Discussion 10" with **Return to assignment**, which focuses the tab you left. You also get *It's for class* (a short exception), *Continue anyway* (after a delay) and *End focus*. Class videos can be permanent exceptions. Rules expire when the block ends, even if Game Plan has closed.
+The vault is the database. There is no second task list.
+
+```
+07 Map/Vision.md                ← Goal - …  ← Area - …  ← class/project hub  ← task notes
+00 Inbox/Ideas/                   idea notes (#idea)
+06 Daily/YYYY-MM-DD.md            what you finished that day, night check-in
+06 Daily/Weekly/                  Sunday reviews
+System/schedule.md                when you're busy (classes, work, sleep)
+System/experiments.md             the experiment queue and your daily reward
+```
+
+Tasks are `type: assignment` notes with `class`, `status`, `due`, `points` (1/2/3/5/8/13), `first_step`,
+`my_estimate_min`, `actual_min`, `done_date`. Each note links to its parent with a `Part of [[…]]` line,
+and Game Plan keeps a `📊 12 done · 62 pts · 9h 40m · last: Nov 21` line under every hub, area, goal and
+the vision, so finished work visibly adds up in Obsidian's graph. AI calls run `claude -p` from the vault
+folder, so the vault's own `CLAUDE.md` gives Claude its context.
+
+## Install (macOS)
+
+Needs: Python 3 (the system one is fine), Google Chrome, [Claude Code](https://claude.com/claude-code)
+signed in, and an Obsidian vault with `System/scripts/vaultlib.py` (the vault's helper scripts).
+
+```sh
+zsh desktop/install.sh          # login service on http://127.0.0.1:4317 + "Game Plan.app"
+```
+
+Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `desktop/extension`.
+For **Open my map**, install the Obsidian community plugin *Advanced URI*.
+
+`zsh desktop/install.sh --uninstall` removes it. Your vault is never touched by uninstalling.
+
+## On a bad day
+
+1. Open Game Plan. Look at one task only.
+2. Type the smallest first step you can do in 2 minutes, and a number of minutes.
+3. Press Start. Do just that step.
+4. Stuck? Press Stuck and answer the question.
+5. Press Done. One point is still a not-zero day.
 
 ## Files
 
+| Path | What |
+|---|---|
+| `desktop/server.py` | HTTP server (localhost only), actions, Claude calls, midnight notes, notifications |
+| `desktop/vault.py` | Reads and writes the vault: tasks, map, stats, schedule, ranking |
+| `desktop/app/` | The page: plain HTML, CSS and JS, no build step |
+| `desktop/extension/` | Chrome blocker (focus timer + night lock) |
+| `desktop/import_history.py` | One-time import from an older Game Plan export |
+| `desktop/tests/` | Unit tests, an end-to-end test, the demo vault |
+
+## Tests
+
+```sh
+python3 -m unittest discover -s desktop/tests -p 'test_v3.py'                     # unit + flow tests (Claude stubbed)
+uv run --with playwright python desktop/tests/e2e.py --vault COPY --shots OUT     # real clicks, on a COPY of a vault
 ```
-desktop/server.py      local server (localhost) + opt-in phone listener (paired devices only)
-desktop/focus.py       the shared session: clock, credit-once, checkpoints, settings, pairing, migration
-desktop/bridge.py      vault notes ↔ task docs; background sizing (points, first step, checkpoints)
-desktop/nudge.py       occasional pop-ups (respects sessions, quiet hours, snooze)
-desktop/mac/           GamePlanBar.swift + build.sh (menu bar timer, ⌥⌘G, lock/unlock prompts)
-desktop/extension/     Chrome MV3 extension (return screen)
-desktop/app/           the page (plain HTML/CSS/JS, no build step); old v1 at /v1
-desktop/tests/         make_vault.py (throwaway vault copies for tests)
-```
 
-## Safety
+## Privacy
 
-The main server listens on 127.0.0.1 only. It rejects other Host headers (DNS rebinding) and requires a custom header on writes. The phone listener is off by default. When it's on, every request needs a per-device token (stored hashed and revocable), and phones can't trigger anything on the Mac. It's plain HTTP on your Wi-Fi, so turn it off on networks you don't trust. Nothing touches Con Ed folders.
-
-## iPhone app shielding
-
-Not included. Screen Time shielding (FamilyControls/ManagedSettings) needs a native iOS app built in full Xcode, a paid Apple Developer account, and Apple's approval of the Family Controls entitlement. This Mac has only the Command Line Tools, so the phone gets the web companion and calendar reminders instead.
+Everything stays on your Mac: the server only listens on `127.0.0.1`, it reads and writes only the
+vault, and personal files (`import/`, anything personal in the vault) are gitignored. See
+[ROADMAP.md](ROADMAP.md) for what's next.
