@@ -50,8 +50,9 @@ for c in ("Operating Systems", "Discrete Math", "Writing"):
 def task(title, cls, due=None, points=3, status="todo", done=None, mins=None):
     d = (today + dt.timedelta(days=due)).isoformat() if due is not None else ""
     extra = (f"done_date: {today - dt.timedelta(days=done)}\n" if done is not None else "") + (f"actual_min: {mins}\n" if mins else "")
+    url = f'brightspace_url: "https://lms.example.edu/submit/{abs(hash(title)) % 9999}"\n' if cls in ("Operating Systems", "Discrete Math", "Writing") else ""
     put(f"00 Inbox/Assignments/{title}.md", f"---\ntype: assignment\nclass: {cls}\ndue: {d}\nstatus: {status}\npoints: {points}\n"
-        f"first_step: Open it\n{extra}---\n# {title}\n")
+        f"first_step: Open it\n{url}{extra}---\n# {title}\n")
 
 
 task("Lab 4: page tables", "Operating Systems", 0, 8)
@@ -60,6 +61,9 @@ task("Leg day", "Body", 1, 2)
 task("Problem set 9", "Discrete Math", 2, 5)
 task("Quiz review", "Discrete Math", 3, 3)
 task("Portfolio README", "Career", None, 2)
+task("Lab 5: file systems", "Operating Systems", 12, 13)
+task("Essay draft", "Writing", 6, 5)
+task("Midterm review", "Discrete Math", 9, 5)
 task("Lab 3: scheduler", "Operating Systems", -2, 8, "done", 0, 70)
 task("Proof warm-ups", "Discrete Math", 0, 2, "done", 0, 20)
 rng = random.Random(4)
@@ -95,6 +99,10 @@ if a.shots:
         pg.click("#done")
         pg.wait_for_timeout(2400)
         pg.screenshot(path=os.path.join(a.shots, "done.png"))
+        pg.click("#burst")
+        pg.click("#tab-all")
+        pg.wait_for_selector("#list .row")
+        pg.screenshot(path=os.path.join(a.shots, "all.png"))
         b.close()
     srv.shutdown()
     print("screenshots:", a.shots)

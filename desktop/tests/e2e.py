@@ -76,6 +76,24 @@ with sync_playwright() as p:
     expect(pg.locator("#burst .guess")).to_contain_text("You guessed 20 min")
     pg.click("#burst")
 
+    # 3b. All tasks: Submit links, Done straight from the list, Do now sends a task to the main screen
+    pg.click("#tab-all")
+    expect(pg.locator("#list .row").first).to_be_visible()
+    assert pg.locator("#list a.mini.sub").count() > 0, "no Submit links in the list"
+    pg.screenshot(path=os.path.join(a.shots, "3b-all-tasks.png"))
+    row = pg.locator("#list .row:has(.tick)").first
+    listed_done = row.locator(".t").inner_text()
+    row.locator(".tick").click()
+    expect(pg.locator("#burst")).to_be_visible()
+    pg.click("#burst")
+    expect(pg.locator("#list .row .t", has_text=listed_done)).to_have_count(0)
+    row = pg.locator("#list .row:has(.tick)").nth(1)
+    picked = row.locator(".t").inner_text()
+    row.locator("[data-act=pick]").click()
+    expect(pg.locator(".hero .title")).to_have_text(picked)
+    expect(pg.locator(".hero .why")).to_contain_text("picked")
+    print("list: done", repr(listed_done), "| do now", repr(picked))
+
     # 4. an idea opens Spitball
     pg.fill("#type-in", "idea: a study group that meets right after each weekly quiz")
     pg.press("#type-in", "Enter")
@@ -107,7 +125,8 @@ daily = read(f"06 Daily/{today}.md")
 assert f"[[{stem}]]" in daily and "## Started" in daily, "daily note not updated"
 for rel, (n, pts) in before.items():
     n2, pts2 = stat(rel)
-    assert n2 == n + 1 and pts2 > pts, f"{rel}: {n}/{pts} -> {n2}/{pts2}"
+    exact = rel.endswith("CS 350 Hub.md")      # the list's Done can also feed the goals and the vision
+    assert (n2 == n + 1 if exact else n2 >= n + 1) and pts2 > pts, f"{rel}: {n}/{pts} -> {n2}/{pts2}"
     print(f"{rel}: {n} → {n2} done, {pts} → {pts2} pts")
 idea = sorted(glob.glob(os.path.join(a.vault, "00 Inbox/Ideas/*.md")), key=os.path.getmtime)[-1]
 assert "#idea" in read(idea) and "**Me:** People skip" in read(idea)

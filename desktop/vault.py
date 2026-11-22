@@ -6,6 +6,7 @@ Vision <- Goal <- Area <- class/project hub <- task, each linked to its parent b
 Standard library only (macOS python3 3.9).
 """
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -255,7 +256,117 @@ def ensure_vault(vault, today=None):
         new = set_stat(text, stat_line(info["title"], by_node[n]))
         if new != text:
             write(info["path"], new)
+    map_canvas(vault, ts, nd, today)
     return ts, nd
+
+
+# ---------- the map, drawn: 07 Map/Map.canvas ----------
+CANVAS = os.path.join("07 Map", "Map.canvas")
+COLORS = {"vision": "#A99AD9", "goal": "#A99AD9", "area": "#E0B36E", "hub": "#7FB2D9",
+          "late": "#EE6A5F", "soon": "#EF7A2E", "doing": "#E0B36E"}
+
+
+def _id(prefix, s):
+    import hashlib
+    return prefix + hashlib.sha1(s.encode()).hexdigest()[:12]
+
+
+def due_words(t, today):
+    if not t["due"]:
+        return "no due date"
+    d = (t["due"] - today).days
+    return ("overdue since " + short_date(t["due"])) if d < 0 else "due today" if d == 0 else "due tomorrow" if d == 1 \
+        else f"due {t['due']:%a} {short_date(t['due'])}"
+
+
+def map_canvas(vault, ts, nd, today, per_column=6):
+    """A tidy top-down tree, redrawn whenever the vault changes: Vision → goals → areas → classes and
+    projects → their open tasks (overdue red, due within 2 days orange). Every card links to its note."""
+    kids = {n: [] for n in nd}
+    roots = []
+    for n, info in nd.items():
+        (kids[info["parent"]] if info["parent"] in nd else roots).append(n)
+    rank_kind = {"vision": 0, "goal": 1, "area": 2, "hub": 3}
+    size = lambda n: 1 + sum(size(c) for c in kids[n])                    # biggest branch first, reading left to right
+    for n in list(kids) + [None]:
+        (kids.get(n) if n else roots).sort(key=lambda c: (rank_kind.get(nd[c]["kind"], 9), -size(c), nd[c]["title"].lower()))
+    todo, stats = {}, {n: [0, 0, 0] for n in nd}
+    for t in ts:
+        up = home(nd, t["cls"])
+        if t["status"] != "done":
+            todo.setdefault(up, []).append(t)
+        for n in chain(nd, up):
+            stats[n][0 if t["status"] == "done" else 2] += 1
+            stats[n][1] += t["points"] if t["status"] == "done" else 0
+    for v in todo.values():
+        v.sort(key=lambda t: (t["due"] or dt.date.max, t["title"].lower()))
+    W, GAP, ROW, CARD = 260, 44, 210, 96
+    nodes, edges, cursor = [], [], [0]
+
+    def text_node(key, text, cx, y, w, h, color=None):
+        node = {"id": key, "type": "text", "text": text, "x": int(cx - w / 2), "y": int(y), "width": w, "height": h}
+        if color:
+            node["color"] = color
+        nodes.append(node)
+        return key
+
+    def tasks_column(owner, items, depth, cx):
+        top, prev = depth * ROW, owner
+        for i, t in enumerate(items[:per_column]):
+            stem = os.path.splitext(os.path.basename(t["path"]))[0]
+            late, soon = t["due"] and t["due"] < today, t["due"] and 0 <= (t["due"] - today).days <= 2
+            color = COLORS["late"] if late else COLORS["doing"] if t["status"] == "doing" else COLORS["soon"] if soon else None
+            pts = f"{t['points']} pt{'s' if t['points'] != 1 else ''}"
+            key = text_node(_id("t-", t["id"]), f"[[{stem}|{t['title']}]]\n{due_words(t, today)} · {pts}", cx, top + i * (CARD + 12), W, CARD, color)
+            if i == 0:
+                edges.append({"id": _id("e-", (owner or "") + key), "fromNode": owner, "fromSide": "bottom", "toNode": key, "toSide": "top"})
+            prev = key
+        if len(items) > per_column:
+            text_node(_id("m-", str(owner)), f"+{len(items) - per_column} more", cx, top + per_column * (CARD + 12), W, 44)
+        return prev
+
+    def place(n, depth):
+        """Returns the x-center of n after placing its subtree (leaves get the next free column)."""
+        cols = kids[n] + (["__tasks__"] if todo.get(n) else [])
+        xs = []
+        for c in cols:
+            if c == "__tasks__":
+                xs.append(cursor[0])
+                cursor[0] += W + GAP
+            else:
+                xs.append(place(c, depth + 1))
+        if not xs:
+            xs = [cursor[0]]
+            cursor[0] += W + GAP
+        cx = (xs[0] + xs[-1]) / 2
+        info, (done, pts, open_) = nd[n], stats[n]
+        key = _id("n-", n)
+        if info["kind"] == "vision":
+            body = re.sub(r"(?m)^(---\n.*?\n---\n|# .*|📊 .*|Part of .*)$", "", re.sub(r"^---\n.*?\n---\n", "", read(info["path"]), flags=re.S)).strip()
+            text_node(key, f"# [[{n}|{info['title']}]]\n{body}\n\n**{done} done · {pts} pts**", cx, depth * ROW, 2 * W, 190, COLORS["vision"])
+        else:
+            text_node(key, f"### [[{n}|{info['title']}]]\n{done} done · {pts} pts" + (f" · **{open_} open**" if open_ else ""),
+                      cx, depth * ROW, W, 110, COLORS.get(info["kind"]))
+        for c in kids[n]:
+            edges.append({"id": _id("e-", n + c), "fromNode": key, "fromSide": "bottom", "toNode": _id("n-", c), "toSide": "top"})
+        if todo.get(n):
+            tasks_column(key, todo[n], depth + 1, xs[-1])
+        return cx
+
+    for r in sorted(roots, key=lambda r: (nd[r]["kind"] != "vision", r)):
+        place(r, 1)
+    if todo.get(None):
+        cx = cursor[0]
+        cursor[0] += W + GAP
+        tasks_column(text_node("unsorted", "### Unsorted\nTasks without a class yet", cx, ROW, W, 110), todo[None], 2, cx)
+    text_node("legend", "**🧭 Map** · drawn by Game Plan, redrawn when anything changes\n"
+              "Purple: vision + goals · Maple: areas · Blue: classes + projects · Red: overdue · Orange: due within 2 days",
+              min(n["x"] for n in nodes) + 300 if nodes else 0, 0, 600, 90)
+    out = json.dumps({"nodes": nodes, "edges": edges}, indent=1)
+    p = os.path.join(vault, CANVAS)
+    if read(p) != out:
+        write(p, out)
+    return p
 
 
 # ---------- daily + weekly notes ----------

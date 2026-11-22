@@ -7,6 +7,10 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let S = null;            // last state from the server
 let colors = {};         // class -> color, stable while the set of classes is
 let stuckLevel = -1;
+let view = "now";                 // always open on the one thing; "all" is one click away
+let filter = { cls: null, day: null };
+let calShift = 0;                 // calendar offset in 4-week steps
+let highlight = null;             // task id to flash in the list
 
 async function api(path, body) {
   const opts = body === undefined ? { cache: "no-store" }
@@ -46,7 +50,132 @@ function render(state) {
   renderHero();
   renderWeek();
   renderProgress();
+  if (view === "all") renderAll();
 }
+
+/* ---------- views ---------- */
+function show(v) {
+  view = v;
+  $(".court").hidden = v !== "now";
+  $("#board").hidden = v !== "all";
+  $("#tab-now").setAttribute("aria-pressed", String(v === "now"));
+  $("#tab-all").setAttribute("aria-pressed", String(v === "all"));
+  if (v === "all" && S) renderAll();
+}
+$("#tab-now").onclick = () => show("now");
+$("#tab-all").onclick = () => show("all");
+
+/* ---------- all tasks: calendar + what you have + the list ---------- */
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (isoDay, n) => { const d = day(isoDay); d.setDate(d.getDate() + n); return iso(d); };
+const openTasks = () => S.all.filter((t) => t.status !== "done");
+function bucket(t) {
+  if (!t.due) return "No due date";
+  const d = daysBetween(S.today, t.due);
+  return d < 0 ? "Overdue" : d === 0 ? "Due today" : d <= 7 ? "Next 7 days" : "Later";
+}
+function dueWords(t) {
+  if (!t.due) return "no due date";
+  const d = daysBetween(S.today, t.due);
+  return d < 0 ? `${-d} day${d === -1 ? "" : "s"} late` : d === 0 ? "due today" : d === 1 ? "due tomorrow" : "due " + shortDay(t.due);
+}
+
+function renderAll() {
+  renderCalendar();
+  renderLoad();
+  renderList();
+}
+
+function renderCalendar() {
+  const monday = addDays(S.today, -((day(S.today).getDay() + 6) % 7));
+  const start = addDays(monday, calShift * 28);
+  const byDay = {};
+  for (const t of S.all) if (t.due) (byDay[t.due] = byDay[t.due] || []).push(t);
+  let html = "";
+  for (let i = 0; i < 28; i++) {
+    const d = addDays(start, i), items = (byDay[d] || []).sort((a, b) => (a.status === "done") - (b.status === "done") || b.points - a.points);
+    const open = items.filter((t) => t.status !== "done"), load = open.reduce((s, t) => s + t.points, 0);
+    const dd = day(d), label = dd.getDate() === 1 || i === 0 ? dd.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : dd.getDate();
+    const cls = ["day", d < S.today ? "past" : "", d === S.today ? "today" : "", d === filter.day ? "picked" : ""].join(" ");
+    html += `<button class="${cls}" data-day="${d}" aria-label="${shortDay(d)}: ${open.length} open, ${load} points">
+      <span class="n">${label}${load ? `<small>${load} pts</small>` : ""}</span>
+      ${items.slice(0, 3).map((t) => `<span class="chip ${t.status === "done" ? "done" : d < S.today ? "late" : ""}" data-id="${esc(t.id)}"
+        style="background:${colors[t.cls] || "#888"}" title="${esc(t.title)} (${esc(t.cls)}, ${pts(t.points)})">${esc(t.title)}</span>`).join("")}
+      ${items.length > 3 ? `<span class="more">+${items.length - 3} more</span>` : ""}</button>`;
+  }
+  $("#cal-grid").innerHTML = html;
+  $("#cal-range").textContent = `${shortDay(start).replace(/^\w+, /, "")} – ${shortDay(addDays(start, 27)).replace(/^\w+, /, "")}`;
+  $("#cal-grid").onclick = (e) => {
+    const chip = e.target.closest(".chip"), cell = e.target.closest(".day");
+    if (chip) { highlight = chip.dataset.id; filter.day = null; renderList(); return; }
+    if (cell) { filter.day = filter.day === cell.dataset.day ? null : cell.dataset.day; renderAll(); }
+  };
+}
+
+function renderLoad() {
+  const by = {};
+  for (const t of openTasks()) {
+    const b = (by[t.cls] = by[t.cls] || { late: 0, soon: 0, later: 0, undated: 0, n: 0 });
+    const k = bucket(t);
+    b[k === "Overdue" ? "late" : k === "No due date" ? "undated" : k === "Later" ? "later" : "soon"] += t.points;
+    b.n += 1;
+  }
+  const rows = Object.entries(by).sort((a, b) => total(b[1]) - total(a[1]));
+  function total(b) { return b.late + b.soon + b.later + b.undated; }
+  const max = Math.max(1, ...rows.map(([, b]) => total(b)));
+  $("#load-bars").innerHTML = rows.length ? rows.map(([cls, b]) => `
+    <button class="bar-row ${filter.cls === cls ? "on" : ""}" data-cls="${esc(cls)}" aria-pressed="${filter.cls === cls}">
+      <span class="name">${esc(cls)}</span>
+      <span class="track" title="${b.late} pts overdue, ${b.soon} pts due in 7 days, ${b.later} later, ${b.undated} undated">
+        ${["late", "soon", "later", "undated"].map((k) => b[k] ? `<i class="${k}" style="width:${(b[k] / max) * 100}%;background:${colors[cls] || "#888"}"></i>` : "").join("")}</span>
+      <span class="num">${b.n} open · ${b.late + b.soon + b.later + b.undated} pts</span></button>`).join("")
+    : `<p class="nothing">Nothing open. Take the win.</p>`;
+  $("#load-bars").onclick = (e) => {
+    const r = e.target.closest(".bar-row");
+    if (r) { filter.cls = filter.cls === r.dataset.cls ? null : r.dataset.cls; renderAll(); }
+  };
+}
+
+function renderList() {
+  let items = openTasks();
+  if (filter.cls) items = items.filter((t) => t.cls === filter.cls);
+  if (filter.day) items = S.all.filter((t) => t.due === filter.day && (!filter.cls || t.cls === filter.cls));
+  const order = ["Overdue", "Due today", "Next 7 days", "Later", "No due date"];
+  const groups = {};
+  for (const t of items.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || b.points - a.points)) {
+    const k = t.status === "done" ? "Done" : bucket(t);
+    (groups[k] = groups[k] || []).push(t);
+  }
+  const open = items.filter((t) => t.status !== "done");
+  $("#list-count").textContent = `${open.length} open · ${open.reduce((s, t) => s + t.points, 0)} pts`;
+  $("#filters").innerHTML = [filter.cls && `<button class="filter" data-clear="cls">${esc(filter.cls)} ✕</button>`,
+    filter.day && `<button class="filter" data-clear="day">${shortDay(filter.day)} ✕</button>`].filter(Boolean).join("");
+  $("#filters").onclick = (e) => { const b = e.target.closest("[data-clear]"); if (b) { filter[b.dataset.clear] = null; renderAll(); } };
+  $("#list").innerHTML = [...order, "Done"].filter((k) => groups[k]).map((k) => `
+    <h3 class="${k === "Overdue" ? "late" : ""}">${k} (${groups[k].length})</h3>
+    ${groups[k].map((t) => `<div class="row ${t.id === highlight ? "hl" : ""}" data-id="${esc(t.id)}">
+      ${t.status === "done" ? `<span aria-hidden="true" style="color:var(--sage);text-align:center">✓</span>` : `<button class="tick" data-act="done" aria-label="Mark ${esc(t.title)} done"></button>`}
+      <div><a class="t" href="${esc(t.note)}" title="Open the note in Obsidian">${esc(t.title)}</a>
+        <div class="m"><span><span class="dot" style="background:${colors[t.cls] || "#888"}"></span>${esc(t.cls)}</span>
+          <span class="${bucket(t) === "Overdue" && t.status !== "done" ? "late" : ""}">${t.status === "done" ? "done " + shortDay(t.done || t.due) : dueWords(t)}</span>
+          <span class="p">${pts(t.points)}</span></div></div>
+      <div class="acts">${t.url ? `<a class="mini sub" href="${esc(t.url)}" target="_blank" rel="noopener">Submit</a>` : ""}
+        ${t.status === "done" ? "" : `<button class="mini" data-act="pick">Do now</button>`}</div></div>`).join("")}`).join("")
+    || `<p class="nothing">Nothing here. Clear the filter, or type a task below.</p>`;
+  const hl = $(".row.hl", $("#list"));
+  if (hl) hl.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  $("#list").onclick = async (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const id = b.closest(".row").dataset.id;
+    if (b.dataset.act === "done") return done(id);
+    try { const r = await api("/api/pick", { id }); show("now"); render(r.state); const s = $("#step"); if (s) s.focus(); }
+    catch (err) { say(err.message, true); }
+  };
+}
+$("#cal-prev").onclick = () => { calShift -= 1; renderCalendar(); };
+$("#cal-next").onclick = () => { calShift += 1; renderCalendar(); };
+$("#cal-today").onclick = () => { calShift = 0; filter.day = null; renderAll(); };
 
 function renderBar() {
   const ex = S.experiment;

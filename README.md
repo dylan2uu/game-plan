@@ -9,14 +9,18 @@ vault, and keeps every finished task linked up to the goal it serves.
 |---|---|
 | ![Timer running with the first step you typed](docs/screenshots/clock.png) | ![Done: points walk up the chain to the goal](docs/screenshots/done.png) |
 
+![All tasks: a 4-week calendar, what you have by class, and every task with Submit, Done and Do now](docs/screenshots/all.png)
+
 *Screenshots use a made-up demo vault (`desktop/tests/demo.py`).*
 
 ## What it does
 
 - **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. Before **Start** you type your first step and how many minutes you think it takes. **Stuck** gives a question, then a hint, then a worked example of a *similar* problem, one at a time. **Submit** opens the assignment page. **Done** plays one short burst and shows the chain: `+5 pts → class → goal → bigger goal`, plus "you guessed 40 min, took 55."
 - **The week.** Everything due in the next 7 days as blocks grouped by class. Blocks shrink as you finish them.
+- **All tasks** (one click from the main screen). A 4-week calendar with each day's load in points, a "what you have" graph of open work by class (overdue in red), and every task in one list: **Submit** opens the assignment's Brightspace submit page, the circle marks it done, **Do now** sends it to the main screen. Click a day or a class to filter.
 - **Progress.** Points per day for 14 days by class, today's points against a goal of 10 (with your reward when you hit it), and a not-zero streak. Zero days show as 0.
 - **One box for everything.** Type what you're doing, need to do, or thinking. Claude files it as a task, a finished thing, or an idea, links it to the right class and goal, and sizes it. Ideas open **Spitball**: Claude answers with sharp questions or a counter-argument, never a finished answer.
+- **The map.** `07 Map/Map.canvas` in Obsidian, redrawn whenever something changes: vision, goals, areas, classes and projects as a tidy tree, with each one's open tasks underneath (overdue red, due within 2 days orange). **Open my map** opens it.
 - **Night check-in** after 9pm and a **Sunday review**, both saved to the vault. One experiment at a time from `System/experiments.md`.
 - **Runs on its own.** Starts at login. Writes each day's note at midnight (zero days too). At most 4 macOS notifications a day, only in free time from `System/schedule.md`, never within 90 minutes of a Start, and fewer for tasks you keep ignoring.
 - **Blocker** (Chrome extension). While the timer runs, distracting sites show a back-to-work screen. From 10:30pm to 7am, streaming and short-video sites need a typed sentence to open: friction, not a wall.
@@ -35,7 +39,8 @@ System/experiments.md             the experiment queue and your daily reward
 ```
 
 Tasks are `type: assignment` notes with `class`, `status`, `due`, `points` (1/2/3/5/8/13), `first_step`,
-`my_estimate_min`, `actual_min`, `done_date`. Each note links to its parent with a `Part of [[…]]` line,
+`my_estimate_min`, `actual_min`, `done_date`, `brightspace_url` (the vault's morning sync reads it from the
+Brightspace calendar feed). Each note links to its parent with a `Part of [[…]]` line,
 and Game Plan keeps a `📊 12 done · 62 pts · 9h 40m · last: Nov 21` line under every hub, area, goal and
 the vision, so finished work visibly adds up in Obsidian's graph. AI calls run `claude -p` from the vault
 folder, so the vault's own `CLAUDE.md` gives Claude its context.
@@ -50,8 +55,6 @@ zsh desktop/install.sh          # login service on http://127.0.0.1:4317 + "Game
 ```
 
 Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `desktop/extension`.
-For **Open my map**, install the Obsidian community plugin *Advanced URI*.
-
 `zsh desktop/install.sh --uninstall` removes it. Your vault is never touched by uninstalling.
 
 ## On a bad day

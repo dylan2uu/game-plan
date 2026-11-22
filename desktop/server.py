@@ -176,7 +176,9 @@ def state_json():
         hero = view(by_id[sess["id"]], "Timer's running. Stay on the first step.", nd)
         hero.update(started_at=sess["started_at"], step=sess["step"], minutes=sess["est"])
     else:
-        hero = view(*ranked[0], nd) if ranked else None
+        pick = (st.get("pick") or {}) if (st.get("pick") or {}).get("date") == today.isoformat() else {}
+        chosen = next(((t, "You picked this one from your list.") for t, _ in ranked if t["id"] == pick.get("id")), None)
+        hero = view(*(chosen or ranked[0]), nd) if ranked else None
     win = [t for t in ts if t["due"] and today <= t["due"] <= today + dt.timedelta(days=6)]
     groups = {}
     for t in sorted(win, key=lambda t: (t["due"], t["title"])):
@@ -191,9 +193,12 @@ def state_json():
                  "groups": [{"cls": c, "items": items} for c, items in groups.items()]},
         "progress": dict(V.progress(ts, today), reward=reward(vault)),
         "experiment": {"n": ex["active"], "title": ex["title"], "text": ex["text"]},
-        "map": "obsidian://advanced-uri?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&commandid=graph%3Aopen",
+        "map": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.CANVAS),
         "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
         "review_due": review_due, "review": V.week_numbers(ts, today) if review_due else None,
+        "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], status=t["status"], url=t["url"],
+                     due=t["due"].isoformat() if t["due"] else None, done=t["done_date"].isoformat() if t["done_date"] else None,
+                     note="obsidian://open?path=" + urllib.parse.quote(t["path"])) for t in ts],
         "busy": V.busy_now(t0, sched),
         "blocker": bool(parse_time(st.get("extension_seen")) and t0 - parse_time(st.get("extension_seen")) < dt.timedelta(minutes=3)),
     }
@@ -475,6 +480,7 @@ ROUTES = {
     "/api/start": lambda b: (start(b), {})[1],
     "/api/done": lambda b: {"done": finish(b.get("id"))},
     "/api/skip": lambda b: (skip(b), {})[1],
+    "/api/pick": lambda b: (pick(b), {})[1],
     "/api/stop": lambda b: (focus_act({"action": "stop"}), {})[1],
     "/api/stuck": stuck,
     "/api/type": file_typed,
@@ -482,6 +488,16 @@ ROUTES = {
     "/api/checkin": lambda b: (checkin(b), {})[1],
     "/api/review": lambda b: (review(b), {})[1],
 }
+
+
+def pick(body):
+    """'Do now' from the list: this task becomes today's one thing."""
+    with LOCK:
+        t = find_task(V.tasks(CFG["vault"]), body.get("id"))
+        st = load_state()
+        st["pick"] = {"date": dt.date.today().isoformat(), "id": t["id"]}
+        st["skipped"] = {k: [i for i in v if i != t["id"]] for k, v in st.get("skipped", {}).items()}
+        save_state(st)
 
 
 def skip(body):

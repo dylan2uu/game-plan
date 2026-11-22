@@ -12,6 +12,10 @@
 <body>
 <header class="bar">
   <span class="mark">Game Plan</span>
+  <nav class="views" aria-label="View">
+    <button class="view" id="tab-now" aria-pressed="true">Now</button>
+    <button class="view" id="tab-all" aria-pressed="false">All tasks</button>
+  </nav>
   <p class="experiment" id="experiment"></p>
   <div class="bar-actions">
     <button class="pill" id="open-review" hidden>Sunday review</button>
@@ -20,11 +24,10 @@
   </div>
 </header>
 
-<main class="court">
+<main class="court" id="court">
   <section class="hero" id="hero" aria-live="polite">
     <svg class="arc" viewBox="0 0 400 400" aria-hidden="true"><path d="M400 40 A 300 300 0 0 0 400 360"/><circle cx="400" cy="200" r="60"/></svg>
     <div class="hero-body" id="hero-body"></div>
-    <div class="burst" id="burst" hidden></div>
   </section>
 
   <aside class="side">
@@ -40,6 +43,29 @@
     </section>
   </aside>
 </main>
+
+<main class="board" id="board" hidden>
+  <section class="panel cal" aria-labelledby="cal-h">
+    <div class="head"><h2 id="cal-h">Calendar</h2>
+      <div class="cal-nav"><span class="cal-range" id="cal-range"></span>
+        <button class="nav-btn" id="cal-prev" aria-label="Earlier weeks">‹</button>
+        <button class="nav-btn" id="cal-today">Today</button>
+        <button class="nav-btn" id="cal-next" aria-label="Later weeks">›</button></div></div>
+    <div class="dow" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+    <div class="grid" id="cal-grid"></div>
+  </section>
+  <section class="panel load" aria-labelledby="load-h">
+    <div class="head"><h2 id="load-h">What you have</h2><span class="hint">Click a class to filter</span></div>
+    <div id="load-bars" class="bars"></div>
+  </section>
+  <section class="panel list" aria-labelledby="list-h">
+    <div class="head"><h2 id="list-h">All tasks</h2><span class="count" id="list-count"></span></div>
+    <div class="filters" id="filters"></div>
+    <div id="list" class="rows"></div>
+  </section>
+</main>
+
+<div class="burst" id="burst" hidden></div>
 
 <form class="typebox" id="typebox" autocomplete="off">
   <label class="sr" for="type-in">Type anything</label>

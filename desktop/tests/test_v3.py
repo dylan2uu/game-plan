@@ -135,6 +135,25 @@ class ModelTests(Base):
         self.assertEqual((pr["today"], pr["streak"], len(pr["days"])), (2, 2, 14))
         self.assertEqual(pr["days"][-3]["total"], 0)       # zero day shows as 0
 
+    def test_map_canvas(self):
+        task(self.v, "Lab", due=(TODAY + dt.timedelta(days=1)).isoformat())
+        task(self.v, "Gym", cls="Body")
+        V.ensure_vault(self.v)
+        p = os.path.join(self.v, V.CANVAS)
+        c = json.load(open(p))
+        texts = " ".join(n["text"] for n in c["nodes"])
+        for want in ("[[Vision|Vision]]", "[[CS 350 Hub|CS 350]]", "[[Lab|Lab]]", "[[Area - Body|Body]]", "[[Gym|Gym]]", "due tomorrow"):
+            self.assertIn(want, texts)
+        ids = {n["id"] for n in c["nodes"]}
+        self.assertTrue(all(e["fromNode"] in ids and e["toNode"] in ids for e in c["edges"]))
+        boxes = [(n["x"], n["y"], n["x"] + n["width"], n["y"] + n["height"]) for n in c["nodes"]]
+        self.assertFalse([1 for i, a in enumerate(boxes) for b in boxes[i + 1:] if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]])
+        lab = next(n for n in c["nodes"] if "[[Lab|" in n["text"])
+        self.assertEqual(lab.get("color"), V.COLORS["soon"])
+        before = V.read(p)
+        V.ensure_vault(self.v)
+        self.assertEqual(V.read(p), before)                # redrawn only when something changed
+
     def test_experiment_swap(self):
         ex = V.decide_experiment(self.v, "swap", "", TODAY)
         self.assertEqual((ex["active"], ex["next"], ex["title"]), (1, 2, "The gym is the alarm"))
@@ -168,6 +187,18 @@ class FlowTests(Base):
         self.assertTrue(S.finish(os.path.relpath(p2, self.v))["reward_hit"])      # 8 + 2 crosses 10
         with self.assertRaises(S.Bad):
             S.finish(rel)
+
+    def test_pick_from_list(self):
+        task(self.v, "Tonight", due=TODAY.isoformat())
+        later = task(self.v, "Later", due=(TODAY + dt.timedelta(days=9)).isoformat(), extra='brightspace_url: "https://example.edu/submit?x=1&y=2"\n')
+        self.assertEqual(S.state_json()["hero"]["title"], "Tonight")
+        S.pick({"id": os.path.relpath(later, self.v)})
+        st = S.state_json()
+        self.assertEqual(st["hero"]["title"], "Later")
+        self.assertIn("picked", st["hero"]["why"])
+        self.assertEqual(st["hero"]["url"], "https://example.edu/submit?x=1&y=2")
+        self.assertEqual(sorted(t["title"] for t in st["all"]), ["Later", "Tonight"])
+        self.assertIn("Map.canvas", st["map"])
 
     def test_bad_ids_rejected(self):
         for bad in ("../../etc/passwd", "07 Map/Vision.md", "nope.md", None):
