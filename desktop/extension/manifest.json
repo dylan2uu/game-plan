@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Game Plan Focus",
+  "version": "1.0.0",
+  "description": "During a Game Plan focus block, sites you picked show a return-to-work screen instead.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "webNavigation",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Game Plan Focus",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "48": "icon-48.png"
+    }
+  },
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "192": "icon-192.png"
+  }
+}

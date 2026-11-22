@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Back to it · Game Plan</title>
+<style>
+:root{--bg:#0D0F12;--sheet:#15181D;--line:#353C46;--ink:#EDEFF2;--ink2:#B0B7C2;--ink3:#8790A0;--go:#F97316;--go-ink:#1A0A00;--ok:#4ADE80;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:17px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:24px}
+main{max-width:680px;width:100%}
+.k{font-size:15px;font-weight:700;color:var(--go);margin-bottom:14px}
+h1{font-size:clamp(30px,4.5vw,46px);line-height:1.12;letter-spacing:-.03em;margin:0 0 14px}
+p{color:var(--ink2);margin:0 0 26px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+button{font:inherit;cursor:pointer;border-radius:12px;border:1px solid var(--line);background:var(--sheet);color:var(--ink);height:48px;padding:0 18px;font-weight:600}
+button.go{background:var(--go);border-color:var(--go);color:var(--go-ink);height:60px;padding:0 26px;font-size:19px;font-weight:700}
+button[disabled]{opacity:.5;cursor:not-allowed}
+button.ghost{background:none;border-color:transparent;color:var(--ink2)}
+.small{margin-top:22px;font-size:14px;color:var(--ink3)}
+:focus-visible{outline:2px solid #B3A3FF;outline-offset:3px}
+.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<main id="m" aria-live="polite"><p>Loading…</p></main>
+<script type="module" src="return.js"></script>
+</body>
+</html>

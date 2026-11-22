@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
+import urllib.parse
 
 LOCK = threading.Lock()
 NOTE_FIELDS = ("title", "course", "due", "status", "firstStep")
@@ -86,10 +88,13 @@ def all_tasks(vl, vault, store):
         if a["due"]:
             d = a["due"].isoformat()
             due = ex["due"] if str(ex.get("due", "")).startswith(d) else d + "T23:59"
+            if fm.get("source") == "brightspace" and not str(ex.get("due", "")).startswith(d):
+                ex.pop("due", None)                        # stale reschedule from v1: the note's date wins
         if fm.get("dropped") == "true":
             status = ex.get("status") if ex.get("status") in ("dismissed", "cancelled") else "dismissed"
         else:
             status = "done" if a["status"] == "done" else "open"
+        own = fm.get("link") or body_link(a["path"])
         doc = dict(ex)
         doc.update({
             "title": ex.get("title") or clean_title(a["title"]),
@@ -99,6 +104,9 @@ def all_tasks(vl, vault, store):
             "source": ex.get("source") or ("brightspace" if fm.get("source") == "brightspace" else "vault"),
             "sourceId": ex.get("sourceId") or fm.get("uid") or None,
             "notePath": rel,
+            "link": own or brightspace_link(fm.get("uid", "")),
+            "linkKind": "note" if own else ("calendar" if brightspace_link(fm.get("uid", "")) else ""),
+            "obsidian": "obsidian://open?path=" + urllib.parse.quote(a["path"]),
         })
         doc.setdefault("points", 3); doc.setdefault("estMin", 45); doc.setdefault("log", [])
         doc.setdefault("createdAt", fm.get("date") or (a["due"].isoformat() + "T00:00:00" if a["due"] else "2026-01-01T00:00:00"))
@@ -106,6 +114,21 @@ def all_tasks(vl, vault, store):
             doc["doneAt"] = (fm.get("done") or (a["due"].isoformat() if a["due"] else dt.date.today().isoformat())) + "T12:00:00"
         tasks[tid], paths[tid] = doc, a["path"]
     return tasks, paths
+
+
+def body_link(path):
+    """A URL under a '## Link' heading in the note body (what the Brightspace sync writes)."""
+    try:
+        m = re.search(r"^## Link\s*\n\s*(https?://\S+)", open(path, encoding="utf-8").read(), re.M)
+    except OSError:
+        return ""
+    return m.group(1) if m else ""
+
+
+def brightspace_link(uid):
+    """Brightspace calendar UIDs look like '6606-539118@brightspace.binghamton.edu' → that event's page."""
+    m = re.match(r"^(\d+)-(\d+)@(brightspace\.[\w.]+)$", uid or "")
+    return f"https://{m.group(3)}/d2l/le/calendar/{m.group(1)}/event/{m.group(2)}/detailsview" if m else ""
 
 
 def snapshot(vl, vault):
@@ -134,10 +157,13 @@ def write_note_fields(vl, path, doc, today):
         else:
             vl.set_frontmatter_field(path, "status", cur if cur in ("todo", "doing") else "todo")
             set_field(path, "done", None); set_field(path, "dropped", None)
-    if doc.get("due"):
-        set_field(path, "due", str(doc["due"])[:10])
+    if doc.get("due") and vl.read_frontmatter(path).get("source") != "brightspace":
+        set_field(path, "due", str(doc["due"])[:10])      # real Brightspace deadlines are never rewritten
     if doc.get("firstStep"):
         set_field(path, "first_step", re.sub(r"\s+", " ", str(doc["firstStep"]))[:140])
+    if "link" in doc:
+        url = str(doc["link"] or "").strip()
+        set_field(path, "link", f'"{url}"' if re.match(r"^https?://[^\s\"'<>`\\]+$", url) else None)
     if "course" in doc and doc["course"]:
         set_field(path, "class", doc["course"])
 
@@ -196,7 +222,7 @@ def write(vl, vault, op, path, data):
         doc = dict(data or {}) if op == "set" else dict(data or {})
         extra = {} if op == "set" else store["extra"].get(doc_id, {})
         for k, v in doc.items():
-            if k not in ("notePath",):
+            if k not in ("notePath", "obsidian", "linkKind", "link"):
                 deep_set(extra, k, v)
         store["extra"][doc_id] = extra
         write_note_fields(vl, paths[doc_id], doc, today)
@@ -229,6 +255,11 @@ def ai_json(prompt, tier="quick", timeout=120):
         raise DBError("invalid_json", out[:200])
 
 
+def _mins(v):
+    m = re.search(r"\d+", str(v or ""))
+    return max(1, min(600, int(m.group()))) if m else 20
+
+
 # ---------- background sizing: real points + a specific first step for every task ----------
 GENERIC_STEP = "Open it and write 3 bullets of what it's actually asking"
 _sizing = {"busy": False, "last": 0.0}
@@ -239,12 +270,14 @@ def size_pending(vl, vault, force=False):
     Writes points/estMin to gameplan.json and a specific first step into the note.
     Runs at most every 10 minutes and never blocks the page."""
     import time
+    if os.environ.get("GP_TEST") == "1":           # tests never call Claude
+        return
     if _sizing["busy"] or (not force and time.time() - _sizing["last"] < 600):
         return
     with LOCK:
         store = load_store(vault)
         tasks, paths = all_tasks(vl, vault, store)
-    todo = [(tid, t) for tid, t in tasks.items() if t["status"] == "open" and not t.get("sized")][:15]
+    todo = [(tid, t) for tid, t in tasks.items() if t["status"] == "open" and (not t.get("sized") or (not t.get("steps") and not t.get("stepsTried")))][:15]
     if not todo:
         return
     _sizing.update(busy=True, last=time.time())
@@ -256,18 +289,34 @@ def size_pending(vl, vault, force=False):
                       "Math 314 Discrete Math, CDCI 395 internship course). Assignments live in Brightspace (never say Canvas). For each assignment, estimate size and give a "
                       "specific 2-minute first step that names the actual thing to open or do (not generic advice). "
                       "Points scale by effort: 1 (<15 min), 2 (15-30), 3 (30-60), 5 (1-2 h), 8 (2-4 h), 13 (4+ h). "
-                      'Return a JSON array: [{"id": string, "points": number, "estMin": number, "firstStep": string under 110 chars}].\n'
+                      "Also list 3-5 checkpoints: concrete outcomes he can record after a work block, past tense, under 40 chars, "
+                      "in order, each with minutes (e.g. 'Captured the two questions', 'Drafted answer one', 'Submitted'). "
+                      'Return a JSON array: [{"id": string, "points": number, "estMin": number, "firstStep": string under 110 chars, '
+                      '"steps": [{"text": string, "min": number}]}].\n'
                       + json.dumps(items))
             res = ai_json(prompt, "quick", timeout=180)
             with LOCK:
                 store = load_store(vault)
+                for tid, _ in todo:                                # asked once: never re-sent in a loop
+                    store["extra"].setdefault(tid, {})["stepsTried"] = time.strftime("%Y-%m-%d")
                 for r in res if isinstance(res, list) else []:
+                    if not isinstance(r, dict):
+                        continue
                     tid = str(r.get("id", ""))
                     if tid not in paths:
                         continue
-                    pts = min([1, 2, 3, 5, 8, 13], key=lambda x: abs(x - float(r.get("points") or 3)))
+                    try:
+                        pts = min([1, 2, 3, 5, 8, 13], key=lambda x: abs(x - float(r.get("points") or 3)))
+                        est = int(float(r.get("estMin") or 45))
+                    except (TypeError, ValueError):
+                        continue
                     ex = store["extra"].setdefault(tid, {})
-                    ex.update(points=pts, estMin=int(r.get("estMin") or 45), sized="claude")
+                    if not ex.get("sized") or ex.get("sized") == "claude":
+                        ex.update(points=pts, estMin=est, sized="claude")
+                    steps = [{"text": re.sub(r"\s+", " ", str(x.get("text") or "")).strip()[:60], "min": _mins(x.get("min"))}
+                             for x in (r.get("steps") or []) if isinstance(x, dict) and x.get("text")][:6]
+                    if steps:
+                        ex["steps"] = steps
                     step = re.sub(r"\s+", " ", str(r.get("firstStep") or "")).strip()[:140]
                     cur = vl.read_frontmatter(paths[tid]).get("first_step", "")
                     if step and (not cur or cur.startswith(GENERIC_STEP)):
