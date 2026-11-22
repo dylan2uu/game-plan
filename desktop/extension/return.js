@@ -16,7 +16,27 @@ async function post(body) {
 const lower = (s) => s ? s.charAt(0).toLowerCase() + s.slice(1).replace(/\.$/, "") : "";
 const step = (s) => String(s || "").replace(/^([^:>]{2,40}>\s*)+[^:]{2,80}:\s*/, "");
 
+const PHRASE = "I'm choosing this over waking up at 7.";
+const plain = (s) => String(s).toLowerCase().replace(/[’‘`]/g, "'").replace(/\s+/g, " ").replace(/[.!]+$/, "").trim();
+
+function nightLock() {
+  $("#m").innerHTML = `<div class="k">Night lock · 10:30pm to 7am</div>
+    <h1>It's wind-down time.</h1>
+    <p>${esc(site)} stays locked until 7. To open it anyway, type this exactly:</p>
+    <p class="phrase">${esc(PHRASE)}</p>
+    <input id="phrase" autocomplete="off" spellcheck="false" aria-label="Type the sentence to unlock">
+    <div class="row" style="margin-top:16px"><button class="go" id="close">Close this tab</button>
+      <button id="unlock" disabled>Unlock for 30 minutes</button></div>`;
+  const input = $("#phrase"), btn = $("#unlock");
+  input.onpaste = (e) => e.preventDefault();          // friction, not a wall: you have to type it
+  input.oninput = () => { btn.disabled = plain(input.value) !== plain(PHRASE); };
+  btn.onclick = async () => { await chrome.storage.local.set({ nightUntil: Date.now() + 30 * 60000 }); location.href = from; };
+  $("#close").onclick = () => chrome.tabs.getCurrent((t) => chrome.tabs.remove(t.id));
+  $("#close").focus();
+}
+
 async function main() {
+  if (q.get("night") === "1") return nightLock();
   if (test) {
     try { await fetch((await base()) + "/api/ext/tested", { method: "POST", headers: { "Content-Type": "application/json", "X-Game-Plan": "1" }, body: "{}" }); } catch {}
     $("#m").innerHTML = `<div class="k ok">Protection test passed</div><h1>The extension stepped in.</h1><p>During a focus block, the sites you picked get this screen instead. You can close this tab.</p><div class="row"><button class="go" id="close">Close test tab</button></div>`;

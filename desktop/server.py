@@ -1,320 +1,511 @@
 #!/usr/bin/env python3
-"""Game Plan desktop server.
+"""Game Plan v3 server: one page at http://127.0.0.1:4317, the Obsidian vault as the database.
 
-Serves the one-page app at http://127.0.0.1:4317 and reads/writes tasks straight from the
-Obsidian vault (the same assignment notes the Brightspace sync creates). No second task system:
-the vault is the database.
+Localhost only. Reads and writes only the vault (plus a small machine-local state file for the
+running timer, skips and notification counts). AI calls run `claude -p` from the vault folder,
+so the vault's CLAUDE.md (and System/about-me.md) always comes along.
 
-Usage: python3 server.py [--port 4317] [--vault ~/Obsidian/Vault] [--dry-run]
-  --dry-run  print the current task state as JSON and exit (no server, no writes)
+Usage: python3 server.py [--port 4317] [--vault ~/Obsidian/Vault] [--state FILE] [--dry-run]
+  --dry-run   print what the page would show, as JSON, and exit (no server, no writes)
+Env: GP_NO_NOTIFY=1 never sends macOS notifications (test copies of the vault).
 """
 import argparse
 import datetime as dt
 import json
 import os
-import plistlib
 import re
+import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bridge  # noqa: E402  (v1 database + AI on top of the vault)
-import focus  # noqa: E402  (the one shared focus session)
-import launcher  # noqa: E402  (Start → Claude Code in Terminal)
-
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import vault as V  # noqa: E402
+
 APP_DIR = os.path.join(HERE, "app")
-VAULT = os.path.expanduser(os.environ.get("GP_VAULT", "~/Obsidian/Vault"))
+LOCK = threading.RLock()
+CFG = {"vault": os.path.expanduser(os.environ.get("GP_VAULT", "~/Obsidian/Vault")),
+       "state": os.path.expanduser("~/Library/Application Support/GamePlan/state.json"), "port": 4317}
+DISTRACTIONS = ["instagram.com", "youtube.com/shorts", "tiktok.com", "x.com", "twitter.com", "reddit.com", "netflix.com", "hulu.com"]
 
 
-def load_vaultlib(vault):
-    """Reuse the vault's own helpers so Game Plan and today.py read notes the same way."""
-    sys.path.insert(0, os.path.join(vault, "System", "scripts"))
-    import vaultlib  # noqa: E402
-    return vaultlib
+class Bad(Exception):
+    pass
 
 
-# ---------- task logic ----------
-def why_text(t, today):
-    """One plain-English line on why this task, right now."""
-    if not t["due"]:
-        return "No due date. A tiny start keeps it from piling up."
-    days = (t["due"] - today).days
-    if t["status"] == "doing":
-        return "You already started. Picking it back up is the easiest win today."
-    if days < 0:
-        return f"It's {-days} day{'s' if -days != 1 else ''} late. Getting it in now still beats a zero."
-    if days == 0:
-        return "Due tonight. Five minutes now beats a panic at 11pm."
-    if days == 1:
-        return "Due tomorrow. Starting today means no all-nighter."
-    return f"Due {t['due']:%A}. A small start now makes it way lighter later."
+# ---------- machine-local state: running timer, skips, notification counts ----------
+def load_state():
+    try:
+        return json.load(open(CFG["state"]))
+    except (OSError, ValueError):
+        return {}
 
 
-def rank_key(t, today):
-    """Doing first, then overdue (oldest first), then soonest due. Undated last."""
-    due = t["due"] or dt.date.max
-    return (0 if t["status"] == "doing" else 1, due)
+def save_state(s):
+    os.makedirs(os.path.dirname(CFG["state"]), exist_ok=True)
+    tmp = CFG["state"] + ".tmp"
+    json.dump(s, open(tmp, "w"), indent=1)
+    os.replace(tmp, CFG["state"])
 
 
-def task_json(vl, vault, a, today):
-    rel = os.path.relpath(a["path"], vault)
-    title = re.sub(r"^\d{4}-\d{2}-\d{2}\s+", "", a["title"])
-    title = re.sub(r"\s*-\s*Due$", "", title)
-    return {
-        "id": rel, "title": title, "class": a["class"], "status": a["status"],
-        "due": a["due"].isoformat() if a["due"] else None,
-        "days": (a["due"] - today).days if a["due"] else None,
-        "first_step": a["first_step"] or "Open it and write 3 bullets of what it's actually asking",
-        "why": why_text(a, today),
-        "obsidian": "obsidian://open?path=" + urllib.parse.quote(a["path"]),
-    }
+def now():
+    return dt.datetime.now().replace(microsecond=0)
 
 
-def state(vl, vault):
-    today = dt.date.today()
-    all_a = vl.assignments(vault)
-    open_a = sorted([a for a in all_a if a["status"] != "done"], key=lambda a: rank_key(a, today))
-    week_start = today - dt.timedelta(days=today.weekday())
-    week_end = week_start + dt.timedelta(days=6)
-    this_week = [a for a in all_a if a["due"] and week_start <= a["due"] <= week_end]
-    month_from = today.replace(day=1) - dt.timedelta(days=7)
-    cal = [task_json(vl, vault, a, today) for a in all_a
-           if a["due"] and month_from <= a["due"] <= today + dt.timedelta(days=62)]
-    done_on = {a["path"]: vl.read_frontmatter(a["path"]).get("done", "") for a in all_a if a["status"] == "done"}
-    return {
-        "today": today.isoformat(),
-        "week": [task_json(vl, vault, a, today) for a in sorted(this_week, key=lambda a: a["due"])],
-        "done_today": [task_json(vl, vault, a, today) for a in all_a if done_on.get(a["path"]) == today.isoformat()],
-        "hero": task_json(vl, vault, open_a[0], today) if open_a else None,
-        "open": [task_json(vl, vault, a, today) for a in open_a],
-        "calendar": cal,
-        "progress": {"done": sum(a["status"] == "done" for a in this_week), "total": len(this_week)},
-    }
-
-
-def safe_note(vl, vault, rel):
-    """Only allow assignment notes inside the vault (no ../ tricks)."""
-    p = os.path.realpath(os.path.join(vault, rel))
-    if not p.startswith(os.path.realpath(vault) + os.sep) or not p.endswith(".md") or not os.path.exists(p):
+def parse_time(s):
+    try:
+        return dt.datetime.fromisoformat(str(s))
+    except ValueError:
         return None
-    return p if vl.read_frontmatter(p).get("type") == "assignment" else None
 
 
-def set_field(path, key, value):
-    """Set a frontmatter field, adding it if missing (value None removes it)."""
-    text = open(path, encoding="utf-8").read()
-    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-    if not m:
+# ---------- AI: `claude -p` from the vault folder ----------
+def claude_bin():
+    return shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+
+
+def ai(prompt, model="haiku", timeout=120):
+    """Ask Claude for JSON. The vault's CLAUDE.md pulls in about-me.md, so it always knows Dylan."""
+    cmd = [claude_bin(), "-p", "--model", model, "--strict-mcp-config", "--tools", "", "--no-session-persistence",
+           "--settings", '{"disableAllHooks": true}', prompt + "\n\nReply with ONLY one JSON object. No prose, no code fences."]
+    try:
+        r = subprocess.run(cmd, cwd=CFG["vault"], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise Bad("Claude took too long. Try again.")
+    except OSError:
+        raise Bad("The claude command isn't installed.")
+    out = r.stdout.strip()
+    i, j = out.find("{"), out.rfind("}")
+    try:
+        return json.loads(out[i:j + 1])
+    except ValueError:
+        raise Bad("Claude's answer wasn't readable. Try again.")
+
+
+# ---------- helpers ----------
+def note_path(rel, kind="assignment"):
+    """Only real notes inside the vault, of the expected type (no ../ tricks)."""
+    vault = os.path.realpath(CFG["vault"])
+    p = os.path.realpath(os.path.join(vault, str(rel or "")))
+    if not p.startswith(vault + os.sep) or not p.endswith(".md") or not os.path.isfile(p):
+        raise Bad("That note isn't in the vault.")
+    if V.vaultlib(CFG["vault"]).read_frontmatter(p).get("type") != kind:
+        raise Bad("That note isn't a " + kind + ".")
+    return p
+
+
+def find_task(ts, rel):
+    p = note_path(rel)
+    for t in ts:
+        if t["path"] == p or os.path.realpath(t["path"]) == p:
+            return t
+    raise Bad("That task isn't open anymore.")
+
+
+def text_arg(body, key, limit, required=True):
+    v = re.sub(r"\s+", " ", str(body.get(key) or "")).strip()[:limit]
+    if required and not v:
+        raise Bad(f"Missing {key.replace('_', ' ')}.")
+    return v
+
+
+def reward(vault):
+    m = re.search(r"(?m)^Daily reward[^:]*:\s*(.+)$", V.read(os.path.join(vault, "System", "experiments.md")))
+    return m.group(1).strip() if m else "Basketball"
+
+
+def view(t, why, nd):
+    up = V.done_chain(nd, t["cls"])
+    return {"id": t["id"], "title": t["title"], "cls": t["cls"], "points": t["points"], "status": t["status"],
+            "due": t["due"].isoformat() if t["due"] else None, "why": why, "est": V.est_min(t),
+            "first_step": t["first_step"], "url": t["url"], "chain": up + ["Vision"] if up else ["Unsorted"],
+            "note": "obsidian://open?path=" + urllib.parse.quote(t["path"])}
+
+
+def unique_path(folder, base):
+    path, n = os.path.join(folder, base + ".md"), 2
+    while os.path.exists(path):
+        path, n = os.path.join(folder, f"{base} {n}.md"), n + 1
+    return path
+
+
+def create_task(title, cls, due=None, points=3, first_step="", status="todo", done_date=None, actual=None,
+                source="gameplan", created=None, url=None):
+    """A new task note, filed by class (or 00 Inbox/Assignments) and linked up to its class or area."""
+    vault = CFG["vault"]
+    vl = V.vaultlib(vault)
+    nd = V.nodes(vault)
+    folder = os.path.join(vault, "01 Classes", cls, "Assignments") if cls in vl.CLASSES else os.path.join(vault, "00 Inbox", "Assignments")
+    os.makedirs(folder, exist_ok=True)
+    path = unique_path(folder, vl.safe_name((due.isoformat() + " " if due else "") + title))
+    fm = {"type": "assignment", "class": cls, "due": due.isoformat() if due else "", "status": status,
+          "points": V.snap_points(points), "first_step": first_step, "source": source,
+          "date": (created or dt.date.today()).isoformat(), "done_date": done_date.isoformat() if done_date else None,
+          "actual_min": actual, "brightspace_url": url}
+    head = "".join(f"{k}: {V.yaml_value(v)}\n" if v != "" else f"{k}:\n" for k, v in fm.items() if v is not None)
+    parent = V.home(nd, cls)
+    body = f"# {title}\n" + (f"Part of [[{parent}]]\n" if parent else "") + \
+        (f"\n## First step (5 min)\n- {first_step}\n" if first_step else "") + "\n## Notes\n"
+    V.write(path, "---\n" + head + "---\n" + body)
+    return path
+
+
+def log_started(title, step):
+    vl = V.vaultlib(CFG["vault"])
+    p = vl.daily_note(CFG["vault"])
+    V.write(p, V.add_under(V.read(p), "Started", f"- {now():%H:%M} {title} → {step} (Game Plan)"))
+
+
+# ---------- the page ----------
+def state_json():
+    vault, t0 = CFG["vault"], now()
+    today = t0.date()
+    with LOCK:
+        ts, nd, st = V.tasks(vault), V.nodes(vault), load_state()
+    sched = V.schedule(vault)
+    ranked = V.rank(ts, t0, sched, st.get("skipped", {}).get(today.isoformat(), []))
+    sess = st.get("session")
+    by_id = {t["id"]: t for t in ts}
+    if sess and (sess.get("id") not in by_id or by_id[sess["id"]]["status"] == "done"):
+        sess = None
+    if sess:
+        hero = view(by_id[sess["id"]], "Timer's running. Stay on the first step.", nd)
+        hero.update(started_at=sess["started_at"], step=sess["step"], minutes=sess["est"])
+    else:
+        hero = view(*ranked[0], nd) if ranked else None
+    win = [t for t in ts if t["due"] and today <= t["due"] <= today + dt.timedelta(days=6)]
+    groups = {}
+    for t in sorted(win, key=lambda t: (t["due"], t["title"])):
+        groups.setdefault(t["cls"], []).append({"id": t["id"], "title": t["title"], "points": t["points"],
+                                               "done": t["status"] == "done", "due": f"{t['due']:%a}"})
+    ex = V.experiments(vault)
+    daily = os.path.join(vault, "06 Daily", f"{today.isoformat()}.md")
+    review_due = today.weekday() == 6 and not os.path.exists(V.weekly_path(vault, today))
+    return {
+        "now": t0.isoformat(), "today": today.isoformat(), "hero": hero, "left": max(0, len(ranked) - 1),
+        "week": {"done": sum(t["status"] == "done" for t in win), "total": len(win),
+                 "groups": [{"cls": c, "items": items} for c, items in groups.items()]},
+        "progress": dict(V.progress(ts, today), reward=reward(vault)),
+        "experiment": {"n": ex["active"], "title": ex["title"], "text": ex["text"]},
+        "map": "obsidian://advanced-uri?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&commandid=graph%3Aopen",
+        "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
+        "review_due": review_due, "review": V.week_numbers(ts, today) if review_due else None,
+        "busy": V.busy_now(t0, sched),
+        "blocker": bool(parse_time(st.get("extension_seen")) and t0 - parse_time(st.get("extension_seen")) < dt.timedelta(minutes=3)),
+    }
+
+
+# ---------- actions ----------
+def start(body):
+    step, t0 = text_arg(body, "step", 140), now()
+    try:
+        minutes = max(1, min(600, int(body.get("minutes"))))
+    except (TypeError, ValueError):
+        raise Bad("How many minutes? A number, like 25.")
+    with LOCK:
+        t = find_task(V.tasks(CFG["vault"]), body.get("id"))
+        V.set_fields(t["path"], status="doing", first_step=step, my_estimate_min=minutes, started_at=t0.isoformat())
+        st = load_state()
+        st["session"] = {"id": t["id"], "title": t["title"], "step": step, "est": minutes, "started_at": t0.isoformat(), "allow": []}
+        st["last_start"] = {"id": t["id"], "at": t0.isoformat()}
+        st.setdefault("nudges", {}).setdefault("ignored", {}).pop(t["id"], None)
+        save_state(st)
+        log_started(t["title"], step)
+
+
+def finish(rel):
+    """Mark done: note, #done tag, daily note, every 📊 line up the chain. Returns what the Done screen shows."""
+    vault, t0 = CFG["vault"], now()
+    with LOCK:
+        ts = V.tasks(vault)
+        t = find_task(ts, rel)
+        if t["status"] == "done":
+            raise Bad("Already done.")
+        st = load_state()
+        sess = st.get("session") if (st.get("session") or {}).get("id") == t["id"] else None
+        actual = max(1, round((t0 - parse_time(sess["started_at"])).total_seconds() / 60)) if sess else t["actual"]
+        before = V.progress(ts, t0.date())["today"]
+        V.set_fields(t["path"], status="done", done_date=t0.date().isoformat(), actual_min=actual, started_at=None)
+        if sess:
+            st["session"] = None
+            save_state(st)
+        ts, nd = V.ensure_vault(vault, t0.date())
+        V.refresh_day(vault, t0.date(), ts)
+        after = V.progress(ts, t0.date())["today"]
+    return {"title": t["title"], "points": t["points"], "chain": V.done_chain(nd, t["cls"]), "est": t["my_est"], "actual": actual,
+            "today": after, "goal": V.DAY_GOAL, "reward_hit": before < V.DAY_GOAL <= after, "reward": reward(vault)}
+
+
+def stuck(body):
+    with LOCK:
+        t = find_task(V.tasks(CFG["vault"]), body.get("id"))
+    try:
+        level = max(0, min(2, int(body.get("level") or 0)))
+    except (TypeError, ValueError):
+        level = 0
+    notes = re.sub(r"^---\n.*?\n---\n", "", V.read(t["path"]), flags=re.S)[:1500]
+    asks = ["Ask ONE question that gets him thinking about where to start. No hints, no answers.",
+            "Give ONE concrete hint that moves him forward. Still not the answer.",
+            "Show a short, fully worked example of a SIMILAR problem (different content or numbers), "
+            "then one line telling him to do his own the same way."]
+    no_ai = " MATH 314 bans AI-generated work: never solve or draft his actual problem." if "math" in t["cls"].lower() else ""
+    res = ai(f"Dylan pressed Stuck in Game Plan (rule 2: make him think first).\nTask: {t['title']} ({t['cls']}), "
+             f"due {t['due'] or 'no date'}. His first step: {t['first_step'] or 'none yet'}.\nNote:\n{notes}\n\n"
+             f"{asks[level]} Never do his actual work.{no_ai} Under 110 words, casual. "
+             'Return {"text": "..."}', "sonnet")
+    return {"level": level, "text": str(res.get("text") or "").strip()[:1500]}
+
+
+def file_typed(body):
+    """The type box: Claude files it as a task, a finished thing, or an idea, and links it up."""
+    text = text_arg(body, "text", 500)
+    vault, today = CFG["vault"], dt.date.today()
+    with LOCK:
+        ts, nd = V.tasks(vault), V.nodes(vault)
+    homes = V.homes(nd)
+    open_ts = [t for t in ts if t["status"] != "done"][:40]
+    res = ai(f"Dylan typed this into Game Plan's one box: \"\"\"{text}\"\"\"\nToday is {today:%A} {today}.\n"
+             f"Homes (pick exactly one, or \"\"): {', '.join(homes)}\n"
+             "Open tasks (id | title | home):\n" + "\n".join(f"{t['id']} | {t['title']} | {t['cls']}" for t in open_ts) + "\n\n"
+             "kind: \"task\" = something to do. \"done\" = he says he already did it (past tense); if it is one of the open "
+             "tasks, set match_id. \"idea\" = a thought, plan, question or opinion to think through.\n"
+             'Return {"kind": "task|done|idea", "title": "short, his words, max 70 chars", "home": "...", '
+             '"points": 1|2|3|5|8|13 (1 <15 min, 2 15-30, 3 30-60, 5 1-2 h, 8 2-4 h, 13 4 h+), "due": "YYYY-MM-DD or empty", '
+             '"first_step": "a 2-minute physical first action, max 100 chars (tasks only)", "match_id": "id or empty", '
+             '"questions": ["ideas only: 2-3 sharp questions, or one counter-argument. Never a finished answer."]}')
+    kind = res.get("kind") if res.get("kind") in ("task", "done", "idea") else "task"
+    title = V.vaultlib(vault).safe_name(str(res.get("title") or text), 70)
+    cls = str(res.get("home") or "")
+    cls = cls if cls in homes else "Unsorted"
+    due = V.date_or_none(res.get("due"))
+    step = re.sub(r"\s+", " ", str(res.get("first_step") or "")).strip()[:120]
+    if kind == "done":
+        match = next((t for t in open_ts if t["id"] == res.get("match_id")), None)
+        rel = match["id"] if match else os.path.relpath(create_task(title, cls, due, res.get("points"), step), vault)
+        return {"kind": "done", "done": finish(rel)}
+    if kind == "idea":
+        qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (res.get("questions") or []) if str(q).strip()][:3]
+        with LOCK:
+            folder = os.path.join(vault, "00 Inbox", "Ideas")
+            path = unique_path(folder, V.vaultlib(vault).safe_name(f"{today} {title}"))
+            parent = V.home(nd, cls)
+            V.write(path, f"---\ntype: idea\ndate: {today}\nclass: {cls}\n---\n# {title}\n"
+                    + (f"Part of [[{parent}]]\n" if parent else "") + f"\n#idea\n\n## Thought\n{text}\n\n## Spitball\n"
+                    + "".join(f"- **Claude:** {q}\n" for q in qs))
+        return {"kind": "idea", "idea": {"id": os.path.relpath(path, vault), "title": title, "cls": cls, "questions": qs}}
+    with LOCK:
+        create_task(title, cls, due, res.get("points"), step)
+        V.ensure_vault(vault)
+    return {"kind": "task", "task": {"title": title, "cls": cls, "points": V.snap_points(res.get("points")),
+                                     "due": due.isoformat() if due else None}}
+
+
+def spitball(body):
+    """Reply in an idea note; Claude answers with sharp questions or a counter-argument, never the answer."""
+    reply = text_arg(body, "reply", 1000)
+    vault = CFG["vault"]
+    with LOCK:
+        p = note_path(body.get("id"), "idea")
+        V.write(p, V.read(p).rstrip("\n") + f"\n- **Me:** {reply}\n")
+        nd = V.nodes(vault)
+    note = re.sub(r"^---\n.*?\n---\n", "", V.read(p), flags=re.S)[:4000]
+    res = ai("Spitball with Dylan on this idea note from his vault (rule 2: make him think; never hand him a finished "
+             f"answer).\n{note}\n\nRespond to his last reply with 2-3 sharp questions, or one counter-argument plus one "
+             f"question. Under 80 words total. Also pick up to 2 map notes it connects to from: {', '.join(nd)}.\n"
+             'Return {"questions": ["..."], "related": ["exact names from the list"]}', "sonnet")
+    qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (res.get("questions") or []) if str(q).strip()][:3]
+    rel = [r for r in (res.get("related") or []) if r in nd][:2]
+    with LOCK:
+        text = V.read(p).rstrip("\n") + "\n" + "".join(f"- **Claude:** {q}\n" for q in qs)
+        new = [r for r in rel if f"[[{r}]]" not in text]
+        if new:
+            text = re.sub(r"(?m)^(# .+)$", lambda m: m.group(1) + "\nRelated: " + " · ".join(f"[[{r}]]" for r in new), text, count=1)
+        V.write(p, text)
+    return {"questions": qs, "related": rel}
+
+
+def checkin(body):
+    vault, today = CFG["vault"], dt.date.today()
+    got, way = text_arg(body, "got_done", 400, False) or "—", text_arg(body, "in_the_way", 400, False) or "—"
+    ran = "yes" if body.get("experiment") in (True, "yes") else "no"
+    ex = V.experiments(vault)
+    with LOCK:
+        p = V.vaultlib(vault).daily_note(vault, today)
+        V.write(p, V.replace_section(V.read(p), "Night check-in",
+                                     f"- Got done that mattered: {got}\n- Got in the way: {way}\n"
+                                     f"- Ran this week's experiment (#{ex['active']} {ex['title']}): {ran}"))
+
+
+def review(body):
+    vault, today = CFG["vault"], dt.date.today()
+    worked, way = text_arg(body, "worked", 600, False) or "—", text_arg(body, "in_the_way", 600, False) or "—"
+    decision = body.get("decision") if body.get("decision") in ("keep", "change", "swap") else "keep"
+    note = text_arg(body, "note", 300, False)
+    with LOCK:
+        ts = V.tasks(vault)
+        n = V.week_numbers(ts, today)
+        ex = V.experiments(vault)
+        after = V.decide_experiment(vault, decision, note, today)
+        days = " · ".join(f"[[{(today - dt.timedelta(days=i)).isoformat()}]]" for i in range(6, -1, -1))
+        V.write(V.weekly_path(vault, today),
+                f"---\ntype: weekly\ndate: {today}\nexperiment: \"#{ex['active']} {ex['title']}\"\n---\n"
+                f"# Week of {V.short_date(today - dt.timedelta(days=6))} – {V.short_date(today)}\n"
+                f"{V.STAT}{n['points']} pts · {n['done']} done · {n['not_zero_days']}/7 not-zero days · best: {n['best_day']} · "
+                f"top: {n['top']} · {n['estimate']}\n\nDays: {days}\n\n## What worked?\n{worked}\n\n## What got in the way?\n{way}\n\n"
+                f"## Experiment: {decision}\n#{ex['active']} {ex['title']}" + (f": {note}" if note else "")
+                + (f"\nNext week: #{after['active']} {after['title']}" if decision == "swap" else "") + "\n")
+
+
+# ---------- focus blocker (Chrome extension) ----------
+def focus_view():
+    st, t0 = load_state(), now()
+    sess = st.get("session")
+    protect = {"distractions": DISTRACTIONS, "exceptions": [], "continueDelay": 20, "classAllowMin": 10}
+    if not sess:
+        return {"session": None, "protect": protect}
+    elapsed = (t0 - parse_time(sess["started_at"])).total_seconds()
+    try:
+        p = note_path(sess["id"])
+        url = V.load_task(CFG["vault"], p, V.vaultlib(CFG["vault"]).read_frontmatter(p), V.read(p))["url"]
+    except Bad:
+        url = ""
+    return {"session": {"state": "active", "title": sess["title"], "step": sess["step"],
+                        "remainingSec": max(0, round(sess["est"] * 60 - elapsed)),
+                        "protectUntil": (t0 + dt.timedelta(minutes=2)).isoformat(), "url": url,
+                        "allow": [a for a in sess.get("allow", []) if parse_time(a["until"]) and parse_time(a["until"]) > t0]},
+            "protect": protect}
+
+
+def focus_act(body):
+    with LOCK:
+        st = load_state()
+        sess = st.get("session")
+        if body.get("action") == "allow" and sess:
+            mins = max(1, min(60, int(body.get("minutes") or 10)))
+            sess.setdefault("allow", []).append({"pattern": str(body.get("pattern") or "")[:200],
+                                                 "until": (now() + dt.timedelta(minutes=mins)).isoformat()})
+        elif body.get("action") in ("endFocus", "stop"):
+            st["session"] = None
+        elif body.get("action") == "hello":
+            st["extension_seen"] = now().isoformat()
+        save_state(st)
+    return focus_view()
+
+
+# ---------- background: midnight notes, upkeep, notifications ----------
+def notify(title, message):
+    if os.environ.get("GP_NO_NOTIFY") == "1":
+        print("notify (muted):", title, "|", message, flush=True)
         return
-    lines = [l for l in m.group(1).split("\n") if not l.startswith(key + ":")]
-    if value is not None:
-        lines.append(f"{key}: {value}")
-    open(path, "w", encoding="utf-8").write("---\n" + "\n".join(lines) + "\n---\n" + text[m.end():])
+    subprocess.run(["osascript", "-e", "on run argv", "-e",
+                    'display notification (item 2 of argv) with title "Game Plan" subtitle (item 1 of argv)', "-e", "end run",
+                    title, message], capture_output=True)
 
 
-def log_started(vl, vault, title, step):
-    """Add '- HH:MM title → step' under ## Started in today's daily note (same format as /start)."""
-    p = vl.daily_note(vault)
-    text = open(p, encoding="utf-8").read()
-    line = f"- {dt.datetime.now():%H:%M} {title} → {step} (Game Plan)"
-    if "## Started" in text:
-        text = re.sub(r"(## Started\n)(-\s*\n)?", lambda m: m.group(1) + line + "\n", text, count=1)
-    else:
-        text = text.rstrip() + "\n\n## Started\n" + line + "\n"
-    open(p, "w", encoding="utf-8").write(text)
+def nudge(t0):
+    """At most 4 a day, only in free gaps, never within 90 min of a Start; ignored tasks get fewer."""
+    vault = CFG["vault"]
+    sched = V.schedule(vault)
+    with LOCK:
+        st = load_state()
+        n = st.setdefault("nudges", {})
+        if n.get("date") != t0.date().isoformat():
+            n.update(date=t0.date().isoformat(), sent=0, tasks=[])
+        last_start = parse_time((st.get("last_start") or {}).get("at"))
+        last = parse_time(n.get("last"))
+        if st.get("session") or n["sent"] >= 4 or V.busy_now(t0, sched) or \
+                (last_start and t0 - last_start < dt.timedelta(minutes=90)) or (last and t0 - last < dt.timedelta(minutes=90)):
+            return None
+        ignored = n.setdefault("ignored", {})
+        if n.get("last_id") and not (last_start and last and last_start > last and (st.get("last_start") or {}).get("id") == n["last_id"]):
+            ignored[n["last_id"]] = ignored.get(n["last_id"], 0) + 1
+            n["last_id"] = None
+        ranked = V.rank(V.tasks(vault), t0, sched, st.get("skipped", {}).get(t0.date().isoformat(), []))
+        pick = next((t for t, _ in ranked if not (ignored.get(t["id"], 0) >= 3 and t["id"] in n["tasks"])), None)
+        if not pick:
+            return None
+        n.update(sent=n["sent"] + 1, last=t0.isoformat(), last_id=pick["id"])
+        n["tasks"].append(pick["id"])
+        save_state(st)
+    step = re.sub(r"^([^:>]{2,40}>\s*)+[^:]{2,80}:\s*", "", pick["first_step"] or "")    # drop "Brightspace > Class > Item:"
+    notify(pick["title"], "First step: " + (step or "open it and write 3 bullets of what it's asking"))
+    return pick["id"]
 
 
-# ---------- docs: class folders on this Mac ----------
-SCHOOL = os.path.realpath(os.path.expanduser("~/Documents/School"))
-BLOCKED = ("/02 Con Ed/",)          # hard rule: never surface Con Ed material
-DOC_EXT = {".pdf", ".docx", ".doc", ".pages", ".pptx", ".key", ".xlsx", ".csv", ".txt", ".md", ".html",
-           ".zip", ".png", ".jpg", ".jpeg", ".c", ".h", ".py", ".ipynb", ".tex"}
+def upkeep(t0, force=False):
+    """Links, tags and 📊 lines; at midnight, finish every past day's daily note (zero days included)."""
+    vault = CFG["vault"]
+    with LOCK:
+        st = load_state()
+        roll = V.date_or_none(st.get("rollover")) or t0.date() - dt.timedelta(days=2)
+        yesterday = t0.date() - dt.timedelta(days=1)
+        if not force and roll >= yesterday:
+            return False
+        ts, _ = V.ensure_vault(vault, t0.date())
+        d = roll + dt.timedelta(days=1)
+        while d <= yesterday:
+            V.refresh_day(vault, d, ts)
+            d += dt.timedelta(days=1)
+        st["rollover"] = max(roll, yesterday).isoformat()
+        save_state(st)
+    return True
 
 
-def course_folder(vl, vault, course):
-    d = os.path.realpath(os.path.expanduser(launcher.FOLDERS.get(course or "", "")))
-    return d if course in launcher.FOLDERS and os.path.isdir(d) else None
-
-
-def list_files(vl, vault, course, limit=60):
-    d = course_folder(vl, vault, course)
-    if not d:
-        return {"folder": None, "files": []}
-    out, denied = [], []
-    for root, dirs, files in os.walk(d, onerror=denied.append):
-        dirs[:] = [x for x in dirs if not x.startswith(".") and x not in ("node_modules", "__pycache__")]
-        if root.count(os.sep) - d.count(os.sep) > 2:
-            dirs[:] = []
-        for f in files:
-            full = os.path.join(root, f)
-            if f.startswith(".") or os.path.splitext(f)[1].lower() not in DOC_EXT:
-                continue
-            try:
-                m = os.path.getmtime(full)
-            except OSError:
-                continue
-            out.append({"name": f, "path": full.replace(os.path.expanduser("~"), "~", 1),
-                        "dir": os.path.relpath(root, d) if root != d else "", "mtime": int(m)})
-    out.sort(key=lambda x: -x["mtime"])
-    if denied and not out:      # macOS privacy: the background server can't read ~/Documents yet
-        return {"folder": d.replace(os.path.expanduser("~"), "~", 1), "files": [], "denied": True}
-    return {"folder": d.replace(os.path.expanduser("~"), "~", 1), "files": out[:limit]}
-
-
-def openable(vault, path):
-    """Only files/folders under ~/Documents/School or the vault, never Con Ed."""
-    p = os.path.realpath(os.path.expanduser(str(path or "")))
-    roots = (SCHOOL, os.path.realpath(vault))
-    if not any(p == r or p.startswith(r + os.sep) for r in roots) or any(b in p + "/" for b in BLOCKED):
-        return None
-    return p if os.path.exists(p) else None
-
-
-def note_body(path, limit=2500):
-    text = open(path, encoding="utf-8").read()
-    text = re.sub(r"^---\n.*?\n---\n", "", text, count=1, flags=re.S)
-    return text.strip()[:limit]
-
-
-# ---------- Mac integrations ----------
-APP_SUPPORT = os.path.expanduser("~/Library/Application Support/GamePlan")
-BAR_APP = os.path.expanduser("~/Applications/GamePlanBar.app")
-BAR_PLIST = os.path.expanduser("~/Library/LaunchAgents/com.gameplan.bar.plist")
-
-
-def login_item(enable):
-    """Opt-in: start the menu bar companion at login (a LaunchAgent you can remove any time)."""
-    uid = os.getuid()
-    if enable:
-        if not os.path.isdir(BAR_APP):
-            raise OSError("Build the menu bar app first: zsh desktop/mac/build.sh")
-        exe = os.path.join(BAR_APP, "Contents", "MacOS", "GamePlanBar")
-        os.makedirs(os.path.dirname(BAR_PLIST), exist_ok=True)
-        with open(BAR_PLIST, "wb") as f:
-            plistlib.dump({"Label": "com.gameplan.bar", "ProgramArguments": [exe], "RunAtLoad": True,
-                           "KeepAlive": {"SuccessfulExit": False}, "ProcessType": "Interactive"}, f)
-        if not os.environ.get("GP_NO_OPEN"):
-            subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.gameplan.bar"], capture_output=True)
-            r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", BAR_PLIST], capture_output=True, text=True)
-            if r.returncode not in (0, 37):         # 37: already loaded (it's running right now)
-                os.remove(BAR_PLIST)
-                raise OSError("macOS didn't accept the login item: " + (r.stderr.strip() or str(r.returncode)))
-    else:
-        if not os.environ.get("GP_NO_OPEN"):
-            subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.gameplan.bar"], capture_output=True)
-        if os.path.exists(BAR_PLIST):
-            os.remove(BAR_PLIST)
-    return os.path.exists(BAR_PLIST)
-
-
-def lan_ip():
-    for iface in ("en0", "en1"):
-        r = subprocess.run(["ipconfig", "getifaddr", iface], capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.strip()
-    return None
-
-
-def integrations(vl, vault):
-    store = bridge.load_store(vault)
-    integ = store["meta"].get("integrations", {})
-    st = focus.settings(store)
-
-    def fresh(key, sec):
-        seen = focus.parse((integ.get(key) or {}).get("lastSeen"))
-        return bool(seen and (focus.now() - seen).total_seconds() < sec)
-    files = list_files(vl, vault, "Internship Course", limit=1)
-    return {
-        "server": True,
-        "menuBar": {"built": os.path.isdir(BAR_APP), "running": fresh("mac", 90), "loginItem": os.path.exists(BAR_PLIST)},
-        "extension": {"connected": fresh("extension", 150), "version": (integ.get("extension") or {}).get("version", ""),
-                      "lastSeen": (integ.get("extension") or {}).get("lastSeen"),
-                      "lastTest": (integ.get("extensionTest") or {}).get("lastSeen")},
-        "unlockPrompt": st["unlockPrompt"],
-        "files": {"ok": not files.get("denied"), "folder": files.get("folder")},
-        "lan": {"enabled": st["lan"], "ip": lan_ip() if st["lan"] else None, "port": LAN_PORT,
-                "listening": LAN["srv"] is not None, "pausedOtherNetwork": LAN.get("paused", False),
-                "devices": [{k: d.get(k) for k in ("id", "name", "created", "lastSeen")} for d in store["meta"].get("devices", [])]},
-    }
-
-
-def ics(vault, url):
-    """Calendar file with your study windows for the next 4 weeks, each opening the current task."""
-    st = focus.settings(bridge.load_store(vault))
-    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Game Plan//EN", "CALSCALE:GREGORIAN"]
-    today = dt.date.today()
-    for i in range(28):
-        d = today + dt.timedelta(days=i)
-        for w in st["studyWindows"]:
-            if not isinstance(w, dict) or not focus.hm_ok(w.get("start")) or not focus.hm_ok(w.get("end")) or d.weekday() not in (w.get("days") or []):
-                continue
-            s = dt.datetime.combine(d, dt.time(int(w["start"][:2]), int(w["start"][3:])))
-            e = dt.datetime.combine(d, dt.time(int(w["end"][:2]), int(w["end"][3:])))
-            if e <= s:
-                e += dt.timedelta(days=1)
-            lines += ["BEGIN:VEVENT", f"UID:gp-{d.isoformat()}-{w['start']}@gameplan", f"DTSTAMP:{dt.datetime.utcnow():%Y%m%dT%H%M%SZ}",
-                      f"DTSTART:{s:%Y%m%dT%H%M%S}", f"DTEND:{e:%Y%m%dT%H%M%S}", "SUMMARY:Game Plan: study block",
-                      f"URL:{url}", f"DESCRIPTION:Open Game Plan: {url}",
-                      "BEGIN:VALARM", "TRIGGER:PT0M", "ACTION:DISPLAY", "DESCRIPTION:Study block: open Game Plan", "END:VALARM", "END:VEVENT"]
-    lines.append("END:VCALENDAR")
-    return ("\r\n".join(lines) + "\r\n").encode()
-
-
-TEST_PAGE = b"""<!doctype html><meta charset=utf-8><title>Protection test</title>
-<body style="font:16px system-ui;background:#0d0f12;color:#eceef1;display:grid;place-items:center;height:100vh;margin:0">
-<div style="max-width:440px;text-align:center"><h1>The extension didn't step in.</h1>
-<p>If protection were on, this page would have been replaced by the return screen. Check that the Game Plan extension
-is installed and enabled in chrome://extensions, then run the test again from Game Plan.</p></div>"""
+def ticker():
+    last_full = 0.0
+    while True:
+        try:
+            t0, full = now(), time.time() - last_full > 600
+            upkeep(t0, force=full)
+            last_full = time.time() if full else last_full
+            nudge(t0)
+        except Exception as e:  # never take the server down over upkeep
+            print("ticker:", type(e).__name__, e, flush=True)
+        time.sleep(60)
 
 
 # ---------- HTTP ----------
-LAN_PORT = 4318
-LAN = {"srv": None, "ip": None, "paused": False}
+TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+         ".json": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png"}
+ROUTES = {
+    "/api/start": lambda b: (start(b), {})[1],
+    "/api/done": lambda b: {"done": finish(b.get("id"))},
+    "/api/skip": lambda b: (skip(b), {})[1],
+    "/api/stop": lambda b: (focus_act({"action": "stop"}), {})[1],
+    "/api/stuck": stuck,
+    "/api/type": file_typed,
+    "/api/spitball": spitball,
+    "/api/checkin": lambda b: (checkin(b), {})[1],
+    "/api/review": lambda b: (review(b), {})[1],
+}
+
+
+def skip(body):
+    with LOCK:
+        t = find_task(V.tasks(CFG["vault"]), body.get("id"))
+        st = load_state()
+        today = dt.date.today().isoformat()
+        st["skipped"] = {today: st.get("skipped", {}).get(today, []) + [t["id"]]}    # only today's skips are kept
+        save_state(st)
 
 
 class Handler(BaseHTTPRequestHandler):
-    vl = None
-    vault = VAULT
-    port = 4317
-    lan = False          # True on the phone listener: needs a paired-device token, no Mac side effects
-
-    def log_message(self, fmt, *args):  # quiet
+    def log_message(self, fmt, *args):
         pass
 
-    def _host_ok(self):
-        # Block DNS-rebinding: only answer requests addressed to this machine.
-        if self.lan:
-            return self.headers.get("Host", "") == f"{LAN['ip']}:{LAN_PORT}"
-        return self.headers.get("Host", "") in (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
+    def _host_ok(self):   # DNS-rebinding guard: only answer requests addressed to this machine
+        return self.headers.get("Host", "") in (f"127.0.0.1:{CFG['port']}", f"localhost:{CFG['port']}")
 
-    def _token(self):
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        if q.get("k"):
-            return q["k"][0]
-        m = re.search(r"(?:^|;\s*)gp_k=([\w-]+)", self.headers.get("Cookie", ""))
-        return m.group(1) if m else self.headers.get("X-GP-Token")
-
-    def _auth(self):
-        """Localhost is you. On the LAN listener every request needs a paired, unrevoked device."""
-        if not self.lan:
-            return True
-        d = focus.device_for(self.vault, self._token())
-        if d:
-            focus.touch_device(self.vault, d["id"])
-        return d
-
-    def _send(self, code, body, ctype="application/json", headers=None):
+    def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (headers or {}).items():
-            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -322,250 +513,62 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._host_ok():
             return self._send(403, {"error": "forbidden"})
-        u = urllib.parse.urlparse(self.path)
-        path, q = u.path, urllib.parse.parse_qs(u.query)
-        dev = self._auth()
-        if not dev:
-            return self._send(401, b"<h1>Not paired</h1><p>Open the pairing link from Game Plan on your Mac.</p>", "text/html; charset=utf-8")
-        if self.lan and q.get("k"):                 # first visit from the pairing link: keep the token in a cookie
-            return self._send(302, b"", "text/plain", {"Location": "/", "Set-Cookie": f"gp_k={q['k'][0]}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"})
-        if path == "/api/state":
-            return self._send(200, state(self.vl, self.vault))
-        if path == "/api/focus":
-            return self._send(200, focus.state(self.vl, self.vault))
-        if path == "/api/settings":
-            return self._send(200, focus.settings(bridge.load_store(self.vault)))
-        if path == "/api/integrations" and not self.lan:
-            return self._send(200, integrations(self.vl, self.vault))
-        if path == "/api/reminders.ics":
-            base = f"http://{LAN['ip']}:{LAN_PORT}/" if self.lan else f"http://127.0.0.1:{self.port}/"
-            return self._send(200, ics(self.vault, base), "text/calendar; charset=utf-8",
-                              {"Content-Disposition": 'attachment; filename="game-plan-study-blocks.ics"'})
-        if path == "/__gp_test_distraction":
-            return self._send(200, TEST_PAGE, "text/html; charset=utf-8")
-        if path == "/api/files" and not self.lan:
-            return self._send(200, list_files(self.vl, self.vault, (q.get("course") or [""])[0]))
-        if path == "/api/note":
-            p = safe_note(self.vl, self.vault, (q.get("id") or [""])[0])
-            return self._send(200, {"body": note_body(p)}) if p else self._send(404, {"error": "no such note"})
-        if path == "/v1":
-            path = "/v1.html"
-        if path == "/api/db":
-            if not self.lan:
-                bridge.size_pending(self.vl, self.vault)      # background; returns immediately
-            return self._send(200, bridge.snapshot(self.vl, self.vault))
-        types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
-                 ".json": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png"}
+        path = urllib.parse.urlparse(self.path).path
+        try:
+            if path == "/api/state":
+                return self._send(200, state_json())
+            if path == "/api/focus":
+                return self._send(200, focus_view())
+        except Exception as e:
+            print("GET", path, type(e).__name__, e, flush=True)
+            return self._send(500, {"error": "Something broke reading the vault. Check the server log."})
         name = "index.html" if path == "/" else path.lstrip("/")
         full = os.path.realpath(os.path.join(APP_DIR, name))
         ext = os.path.splitext(full)[1]
-        if full.startswith(os.path.realpath(APP_DIR) + os.sep) and ext in types and os.path.isfile(full):
-            return self._send(200, open(full, "rb").read(), types[ext])
+        if full.startswith(os.path.realpath(APP_DIR) + os.sep) and ext in TYPES and os.path.isfile(full):
+            return self._send(200, open(full, "rb").read(), TYPES[ext])
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
         # Custom header = browsers must preflight cross-site requests, which we never approve.
         if not self._host_ok() or self.headers.get("X-Game-Plan") != "1":
             return self._send(403, {"error": "forbidden"})
-        dev = self._auth()
-        if not dev:
-            return self._send(401, {"error": "not paired"})
         try:
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 2) or b"{}")
-        except ValueError:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 100_000)) or b"{}")
+            assert isinstance(body, dict)
+        except (ValueError, AssertionError):
             return self._send(400, {"error": "bad json"})
-        route = urllib.parse.urlparse(self.path).path
-        if self.lan and route not in ("/api/db", "/api/focus", "/api/log/edit"):
-            return self._send(403, {"error": "not available from a paired phone"})
-        if route == "/api/db":
-            ok, why = db_write_allowed(body, self.lan)
-            if not ok:
-                return self._send(403, {"error": why})
-            if str(body.get("path", "")) == "meta/settings":
-                body = dict(body, data=sanitize_v1_settings(body.get("data")))
-            try:
-                bridge.write(self.vl, self.vault, body.get("op"), body.get("path"), body.get("data"))
-            except bridge.DBError as e:
-                return self._send(400, {"code": e.code, "error": str(e)})
-            return self._send(200, {"ok": True, "db": bridge.snapshot(self.vl, self.vault)})
-        if route == "/api/focus":
-            device = "phone" if self.lan else str(body.get("device") or "web")[:20]
-            try:
-                out = focus.act(self.vl, self.vault, body, device)
-            except focus.ActError as e:
-                return self._send(400, {"error": str(e)})
-            if out.get("started"):                      # same bookkeeping as before: note → doing, daily log
-                self._mark_started(out["session"])
+        path = urllib.parse.urlparse(self.path).path
+        try:
+            if path == "/api/focus":
+                return self._send(200, focus_act(body))
+            if path not in ROUTES:
+                return self._send(404, {"error": "not found"})
+            out = ROUTES[path](body)
+            out["state"] = state_json()
             return self._send(200, out)
-        if route == "/api/log/edit":
-            try:
-                return self._send(200, {"ok": True, "entry": focus.edit_block(self.vault, str(body.get("taskId")), str(body.get("sid")), body.get("minutes", 0))})
-            except (focus.ActError, TypeError, ValueError) as e:
-                return self._send(400, {"error": str(e)})
-        if route == "/api/settings":
-            try:
-                patch = focus.clean_settings(body)
-                mins = max(0, min(24 * 60, int(body.get("snoozeMin") or 0))) if "snoozeMin" in body else None
-            except (TypeError, ValueError, AttributeError):
-                return self._send(400, {"error": "Some settings weren't valid. Check the times and numbers."})
-            with bridge.LOCK:
-                store = bridge.load_store(self.vault)
-                store["meta"].setdefault("settings", {}).update(patch)
-                if patch.get("lan"):
-                    store["meta"]["lanIp"] = lan_ip()          # pairing is tied to the network you turned it on in
-                if mins is not None:
-                    store["meta"].setdefault("nudge", {})["snoozeUntil"] = focus.iso(focus.now() + dt.timedelta(minutes=mins)) if mins else None
-                bridge.save_store(self.vault, store)
-            if "lan" in patch:
-                lan_sync(self.vault)
-            return self._send(200, focus.settings(bridge.load_store(self.vault)))
-        if route == "/api/ext/tested":
-            with bridge.LOCK:
-                store = bridge.load_store(self.vault)
-                store["meta"].setdefault("integrations", {})["extensionTest"] = {"lastSeen": focus.iso(focus.now())}
-                bridge.save_store(self.vault, store)
-            return self._send(200, {"ok": True})
-        if route == "/api/open-url":                     # used when no click started it (auto-start countdown)
-            url = str(body.get("url") or "")
-            if not re.match(r"^https?://[^\s\"']+$", url):
-                return self._send(400, {"error": "Not a web link."})
-            if not os.environ.get("GP_NO_OPEN"):
-                subprocess.run(["open", url], check=False)
-            return self._send(200, {"ok": True})
-        if route == "/api/mac/login":
-            try:
-                return self._send(200, {"ok": True, "loginItem": login_item(bool(body.get("enable")))})
-            except OSError as e:
-                return self._send(400, {"error": str(e)})
-        if route == "/api/mac/app":
-            if not os.path.isdir(BAR_APP):
-                return self._send(400, {"error": "Build it first: zsh desktop/mac/build.sh"})
-            if not os.environ.get("GP_NO_OPEN"):
-                subprocess.run(["open", BAR_APP], check=False)
-            return self._send(200, {"ok": True})
-        if route == "/api/devices":
-            d, tok = focus.pair(self.vault, body.get("name"))
-            ip = lan_ip()
-            return self._send(200, {"device": {k: d[k] for k in ("id", "name", "created")},
-                                    "url": f"http://{ip}:{LAN_PORT}/?k={tok}" if ip else None})
-        if route == "/api/devices/revoke":
-            return self._send(200, {"ok": focus.revoke(self.vault, str(body.get("id")))})
-        if route == "/api/launch":
-            try:
-                folder = launcher.launch(self.vl, self.vault, body.get("task", ""))
-            except (ValueError, OSError, subprocess.CalledProcessError) as e:
-                return self._send(400, {"error": str(e)})
-            return self._send(200, {"ok": True, "folder": folder})
-        if route == "/api/open":
-            target = body.get("path")
-            if body.get("course"):
-                target = course_folder(self.vl, self.vault, body.get("course"))
-            p = openable(self.vault, target)
-            if not p:
-                return self._send(404, {"error": "That file isn't in your School folder or the vault."})
-            if not os.environ.get("GP_NO_OPEN"):
-                subprocess.run(["open", p], check=False)
-            return self._send(200, {"ok": True})
-        if route == "/api/ai":
-            try:
-                return self._send(200, {"result": bridge.ai_json(str(body.get("prompt", ""))[:20000], body.get("tier", "quick"))})
-            except bridge.DBError as e:
-                return self._send(502, {"code": e.code, "error": str(e)})
-        self._send(404, {"error": "not found"})
-
-    def _mark_started(self, sess):
-        try:
-            store = bridge.load_store(self.vault)
-            _, paths = bridge.all_tasks(self.vl, self.vault, store)
-            p = paths.get(sess["taskId"])
-            if p:
-                if self.vl.read_frontmatter(p).get("status") == "todo":
-                    self.vl.set_frontmatter_field(p, "status", "doing")
-                log_started(self.vl, self.vault, sess["title"], sess["step"] or "focus block")
-        except Exception as e:  # bookkeeping only; never break the timer
-            print("start bookkeeping failed:", e, flush=True)
-
-
-PROTECTED_META = {"devices", "session", "integrations", "reqs", "lastResult", "settingsVersion", "lanIp"}
-
-
-def db_write_allowed(body, lan):
-    """/api/db is the generic store. Focus/session/pairing data only changes through their own routes."""
-    path = str(body.get("path") or "")
-    coll, _, doc = path.partition("/")
-    if coll == "meta" and doc in PROTECTED_META:
-        return False, "That data changes through its own controls."
-    if lan and not (coll == "tasks" or path == "meta/rewards"):
-        return False, "Not available from a paired phone."
-    return True, ""
-
-
-def sanitize_v1_settings(data):
-    """The old v1 page still writes meta/settings: validate known keys, keep only harmless extras."""
-    data = data or {}
-    out = focus.clean_settings({k: v for k, v in data.items() if k in focus.DEFAULT_SETTINGS})
-    out.pop("lan", None)                                  # pairing only through Settings
-    for k in ("lastCheckin",):
-        if k in data:
-            out[k] = str(data[k])[:20]
-    return out
-
-
-class LanHandler(Handler):
-    lan = True
-
-
-def lan_sync(vault):
-    """Start or stop the phone listener to match settings.lan.
-    The listener only runs on the network it was turned on in: if the Mac's address changes (another Wi-Fi),
-    it stops and waits for you to turn it on again there. If Wi-Fi wasn't up yet, the watcher retries."""
-    store = bridge.load_store(vault)
-    want, home = focus.settings(store)["lan"], store["meta"].get("lanIp")
-    ip = lan_ip()
-    if LAN["srv"] and (not want or ip != LAN["ip"]):
-        LAN["srv"].shutdown(); LAN["srv"].server_close()
-        LAN.update(srv=None, ip=None, paused=bool(want))
-        return
-    if want and not LAN["srv"]:
-        if not ip or (home and ip != home):
-            LAN["paused"] = bool(ip)
-            return
-        try:
-            srv = ThreadingHTTPServer((ip, LAN_PORT), LanHandler)
-        except OSError as e:
-            print("phone listener failed:", e, flush=True)
-            return
-        LAN.update(srv=srv, ip=ip, paused=False)
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        print(f"Phone listener on http://{ip}:{LAN_PORT} (paired devices only)", flush=True)
-
-
-def lan_watch(vault):
-    import time
-    while True:
-        time.sleep(60)
-        try:
-            lan_sync(vault)
-        except Exception as e:  # never take the server down over this
-            print("phone listener check failed:", e, flush=True)
+        except Bad as e:
+            return self._send(400, {"error": str(e)})
+        except Exception as e:
+            print("POST", path, type(e).__name__, e, flush=True)
+            return self._send(500, {"error": "Something broke. Your notes are fine; check the server log."})
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=4317)
-    ap.add_argument("--vault", default=VAULT)
+    ap.add_argument("--port", type=int, default=CFG["port"])
+    ap.add_argument("--vault", default=CFG["vault"])
+    ap.add_argument("--state", default=CFG["state"])
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
-    vault = os.path.expanduser(a.vault)
-    vl = load_vaultlib(vault)
+    CFG.update(vault=os.path.expanduser(a.vault), state=os.path.expanduser(a.state), port=a.port)
     if a.dry_run:
-        print(json.dumps(state(vl, vault), indent=2)); return
-    focus.migrate(vault)
-    Handler.vl, Handler.vault, Handler.port = vl, vault, a.port
-    srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)   # localhost only; the phone listener is separate and opt-in
-    lan_sync(vault)
-    threading.Thread(target=lan_watch, args=(vault,), daemon=True).start()
-    print(f"Game Plan → http://127.0.0.1:{a.port}  (vault: {vault})", flush=True)
+        print(json.dumps(state_json(), indent=1))
+        return
+    upkeep(now(), force=True)
+    threading.Thread(target=ticker, daemon=True).start()
+    srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)   # localhost only
+    print(f"Game Plan → http://127.0.0.1:{a.port}  (vault: {CFG['vault']})", flush=True)
     srv.serve_forever()
 
 

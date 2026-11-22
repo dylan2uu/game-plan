@@ -1,9 +1,12 @@
 /* Game Plan Focus: watches tab URLs (typed, clicked, and in-page navigation like YouTube → Shorts).
-   During an active Game Plan block, a matching site is replaced by return.html.
+   During a Game Plan timer, a matching site is replaced by return.html.
+   Night lock: 10:30pm-7am, streaming and short-video sites need a typed sentence to open (works even if Game Plan is off).
    Rules come from Game Plan; if Game Plan closes, the last rules stay on only until the block would have ended. */
 import { norm, matches, isProtecting } from "./rules.js";
 
 const DEFAULT_BASE = "http://127.0.0.1:4317";
+const NIGHT = ["youtube.com", "netflix.com", "hulu.com", "tiktok.com", "instagram.com"];
+const nightNow = (d = new Date()) => { const m = d.getHours() * 60 + d.getMinutes(); return m >= 22 * 60 + 30 || m < 7 * 60; };
 let cache = null;
 
 async function base() { const { base } = await chrome.storage.local.get("base"); return base || DEFAULT_BASE; }
@@ -36,6 +39,10 @@ async function check(tabId, url) {
   if (!url || !/^https?:/.test(url) || tabId < 0) return;
   const n = norm(url);
   if (/^(127\.0\.0\.1|localhost)\/__gp_test_distraction/.test(n)) return redirect(tabId, url, true);
+  if (nightNow() && NIGHT.some((s) => matches(n, s))) {
+    const { nightUntil = 0 } = await chrome.storage.local.get("nightUntil");
+    if (Date.now() > nightUntil) return redirect(tabId, url, false, true);
+  }
   const st = await state();
   if (!isProtecting(st)) return;
   const now = Date.now(), p = st.protect || {};
@@ -46,11 +53,11 @@ async function check(tabId, url) {
   if ((p.distractions || []).some((d) => matches(n, d))) redirect(tabId, url, false);
 }
 
-function redirect(tabId, url, test) {
+function redirect(tabId, url, test, night) {
   if (recent.get(tabId) === url) return;
   recent.set(tabId, url);
   setTimeout(() => recent.delete(tabId), 1500);
-  chrome.tabs.update(tabId, { url: chrome.runtime.getURL("return.html") + "?from=" + encodeURIComponent(url) + (test ? "&test=1" : "") });
+  chrome.tabs.update(tabId, { url: chrome.runtime.getURL("return.html") + "?from=" + encodeURIComponent(url) + (test ? "&test=1" : "") + (night ? "&night=1" : "") });
 }
 
 chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.url) check(tabId, info.url); });

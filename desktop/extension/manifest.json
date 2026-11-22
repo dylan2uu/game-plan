@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Game Plan Focus",
-  "version": "1.0.0",
-  "description": "During a Game Plan focus block, sites you picked show a return-to-work screen instead.",
+  "version": "3.0.0",
+  "description": "Game Plan's blocker: during a timer, distracting sites show a back-to-work screen; 10:30pm-7am, streaming sites need a typed sentence to open.",
   "permissions": [
     "tabs",
     "storage",
