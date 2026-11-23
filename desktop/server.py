@@ -145,11 +145,11 @@ def unique_path(folder, base):
 
 def create_task(title, cls, due=None, points=3, first_step="", status="todo", done_date=None, actual=None,
                 source="gameplan", created=None, url=None, est=None):
-    """A new task note, filed by class (or 00 Inbox/Assignments) and linked up to its class or area."""
+    """A new task note, filed by class (or 4 Life) and linked up to its class or area."""
     vault = CFG["vault"]
     vl = V.vaultlib(vault)
     nd = V.nodes(vault)
-    folder = os.path.join(vault, "01 Classes", cls, "Assignments") if cls in vl.CLASSES else os.path.join(vault, "00 Inbox", "Assignments")
+    folder = os.path.join(vault, "2 Classes", cls, "Assignments") if cls in vl.CLASSES else os.path.join(vault, "4 Life")
     os.makedirs(folder, exist_ok=True)
     path = unique_path(folder, vl.safe_name((due.isoformat() + " " if due else "") + title))
     fm = {"type": "assignment", "class": cls, "due": due.isoformat() if due else "", "status": status,
@@ -191,7 +191,7 @@ def state_json():
         hero = view(*(chosen or ranked[0]), nd) if ranked else None
     week = week_summary(ts, t0, sched)
     unsub = set(st.get("unsubmitted", []))
-    daily = os.path.join(vault, "06 Daily", f"{today.isoformat()}.md")
+    daily = os.path.join(vault, "5 Days", f"{today.isoformat()}.md")
     return {
         "version": version(), "now": t0.isoformat(), "today": today.isoformat(), "hero": hero,
         "week_built": V.week_built(ts, nd, today),
@@ -364,7 +364,7 @@ def resize(body):
 
 
 # ---------- live updates: a cheap fingerprint of everything the page shows ----------
-WATCH = ("00 Inbox", "01 Classes", "03 Projects", "06 Daily", "07 Map")
+WATCH = ("4 Life", "2 Classes", "3 Projects", "5 Days", "1 Map")
 
 
 def version():
@@ -582,7 +582,7 @@ def command(body):
                 title = V.vaultlib(vault).safe_name(str(a.get("title") or text), 70)
                 cls = a.get("home") if a.get("home") in homes else "Unsorted"
                 qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (a.get("questions") or []) if str(q).strip()][:3]
-                path = unique_path(os.path.join(vault, "00 Inbox", "Ideas"), V.vaultlib(vault).safe_name(f"{today} {title}"))
+                path = unique_path(os.path.join(vault, "4 Life", "Ideas"), V.vaultlib(vault).safe_name(f"{today} {title}"))
                 parent = V.home(nd, cls)
                 V.write(path, f"---\ntype: idea\ndate: {today}\nclass: {cls}\n---\n# {title}\n" + (f"Part of [[{parent}]]\n" if parent else "")
                         + f"\n#idea\n\n## Thought\n{text}\n\n## Spitball\n" + "".join(f"- **Claude:** {q}\n" for q in qs))

@@ -33,7 +33,7 @@ def put(root, rel, text):
 
 
 def task(root, name, cls="CS 350", due=None, status="todo", extra=""):
-    folder = f"01 Classes/{cls}/Assignments" if cls == "CS 350" else "00 Inbox/Assignments"
+    folder = f"2 Classes/{cls}/Assignments" if cls == "CS 350" else "4 Life"
     return put(root, f"{folder}/{name}.md", f"---\ntype: assignment\nclass: {cls}\ndue: {due or ''}\nstatus: {status}\n"
                f"first_step: Open it\nsource: brightspace\n{extra}---\n# {name} - Due\n\n## Notes\n")
 
@@ -49,13 +49,13 @@ def make_vault():
     put(root, "System/experiments.md", "Active: 4\nNext: 1\nDaily reward (10 pts): Basketball.\n\n## Queue\n"
         "1. **The gym is the alarm.** Sleep in gym clothes.\n2. **Night lock** plus phone away.\n"
         "3. **The homework is the quiz.** 20 minutes by hand.\n4. **Ship ugly.** Freeze the resume.\n\n## Log\n- start\n")
-    put(root, "07 Map/Vision.md", "---\ntype: vision\n---\n# Vision\n\nBig picture.\n")
-    put(root, "07 Map/Goal - Software Engineer.md", "---\ntype: goal\n---\n# Software Engineer\nPart of [[Vision]]\n")
-    put(root, "07 Map/Goal - CS Degree.md", "---\ntype: goal\n---\n# CS Degree\nPart of [[Goal - Software Engineer]]\n")
-    put(root, "07 Map/Goal - Body.md", "---\ntype: goal\n---\n# Body\nPart of [[Vision]]\n")
-    put(root, "07 Map/Area - School.md", "---\ntype: area\n---\n# School\nPart of [[Goal - CS Degree]]\n")
-    put(root, "07 Map/Area - Body.md", "---\ntype: area\n---\n# Body\nPart of [[Goal - Body]]\n")
-    put(root, "01 Classes/CS 350/CS 350 Hub.md", "---\ntype: hub\nkind: class\n---\n# CS 350\nPart of [[Area - School]]\n\n## Overview\n")
+    put(root, "1 Map/Vision.md", "---\ntype: vision\n---\n# Vision\n\nBig picture.\n")
+    put(root, "1 Map/Goal - Software Engineer.md", "---\ntype: goal\n---\n# Software Engineer\nPart of [[Vision]]\n")
+    put(root, "1 Map/Goal - CS Degree.md", "---\ntype: goal\n---\n# CS Degree\nPart of [[Goal - Software Engineer]]\n")
+    put(root, "1 Map/Goal - Body.md", "---\ntype: goal\n---\n# Body\nPart of [[Vision]]\n")
+    put(root, "1 Map/Area - School.md", "---\ntype: area\n---\n# School\nPart of [[Goal - CS Degree]]\n")
+    put(root, "1 Map/Area - Body.md", "---\ntype: area\n---\n# Body\nPart of [[Goal - Body]]\n")
+    put(root, "2 Classes/CS 350/CS 350 Hub.md", "---\ntype: hub\nkind: class\n---\n# CS 350\nPart of [[Area - School]]\n\n## Overview\n")
     return root
 
 
@@ -104,7 +104,7 @@ class ModelTests(Base):
         self.assertIn("Due tonight", why["Tonight"])
         self.assertIn("Tightest fit", why["Soon big"])
         self.assertIn("1 day late", why["Late"])
-        skipped = V.rank(V.tasks(self.v), now, V.schedule(self.v), skip=["01 Classes/CS 350/Assignments/Tonight.md"])
+        skipped = V.rank(V.tasks(self.v), now, V.schedule(self.v), skip=["2 Classes/CS 350/Assignments/Tonight.md"])
         self.assertEqual(skipped[0][0]["title"], "Started")
 
     def test_ensure_vault_links_tags_points_and_stats(self):
@@ -121,12 +121,12 @@ class ModelTests(Base):
         text = V.read(p)
         self.assertIn("#done", text)
         self.assertNotIn("#overdue", text)
-        hub = V.read(os.path.join(self.v, "01 Classes/CS 350/CS 350 Hub.md"))
+        hub = V.read(os.path.join(self.v, "2 Classes/CS 350/CS 350 Hub.md"))
         self.assertIn(f"> **5 pts** · 30m of real work · 1 done · last {V.short_date(TODAY)} · **15 to Bench**", hub)   # the card is the header
         self.assertNotIn("📊", hub)
         self.assertIn("> [!gp-task] Done", text)
-        self.assertIn("**5 pts** · 30m of real work · 1 done", V.read(os.path.join(self.v, "07 Map/Vision.md")))
-        self.assertIn("**0 pts**", V.read(os.path.join(self.v, "07 Map/Goal - Body.md")))
+        self.assertIn("**5 pts** · 30m of real work · 1 done", V.read(os.path.join(self.v, "1 Map/Vision.md")))
+        self.assertIn("**0 pts**", V.read(os.path.join(self.v, "1 Map/Goal - Body.md")))
         board = V.read(os.path.join(self.v, V.SCOREBOARD))
         for want in ("# 🏆 Scoreboard", "## How levels work", "| 6 | All-Star | 200 pts |", "| Finished | 1 tasks |", "## By class"):
             self.assertIn(want, board)
@@ -134,7 +134,7 @@ class ModelTests(Base):
 
     def test_zero_day_and_progress(self):
         V.refresh_day(self.v, TODAY - dt.timedelta(days=1), [])
-        note = V.read(os.path.join(self.v, "06 Daily", f"{TODAY - dt.timedelta(days=1)}.md"))
+        note = V.read(os.path.join(self.v, "5 Days", f"{TODAY - dt.timedelta(days=1)}.md"))
         self.assertIn("📊 Game Plan: 0 done · 0 pts", note)
         for i in (0, 1, 3):
             task(self.v, f"T{i}", due=TODAY.isoformat(), status="done", extra=f"done_date: {TODAY - dt.timedelta(days=i)}\npoints: 2\n")
@@ -173,7 +173,7 @@ class FlowTests(Base):
         fm = V.vaultlib(self.v).read_frontmatter(p)
         self.assertEqual((fm["status"], fm["my_estimate_min"]), ("doing", "40"))
         self.assertEqual(S.load_state()["session"]["id"], rel)
-        self.assertIn("PROJ3 → 40 min (my guess)", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        self.assertIn("PROJ3 → 40 min (my guess)", V.read(os.path.join(self.v, "5 Days", f"{TODAY}.md")))
         self.assertEqual(S.focus_view()["session"]["state"], "active")
         st = S.state_json()
         self.assertEqual(st["hero"]["id"], rel)
@@ -184,7 +184,7 @@ class FlowTests(Base):
         self.assertEqual((fm["status"], fm["done_date"], fm["actual_min"]), ("done", TODAY.isoformat(), "1"))
         self.assertNotIn("started_at", fm)
         self.assertIsNone(S.load_state()["session"])
-        daily = V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md"))
+        daily = V.read(os.path.join(self.v, "5 Days", f"{TODAY}.md"))
         self.assertIn("[[PROJ3]] · +8 pts · CS 350", daily)
         self.assertIn("📊 Game Plan: 1 done · 8 pts", daily)
         p2 = task(self.v, "Quiz", due=TODAY.isoformat(), extra="points: 2\n")
@@ -257,7 +257,7 @@ class FlowTests(Base):
         p = task(self.v, "Oops", due=TODAY.isoformat(), extra="points: 3\n")
         rel = os.path.relpath(p, self.v)
         S.finish(rel)
-        daily = os.path.join(self.v, "06 Daily", f"{TODAY}.md")
+        daily = os.path.join(self.v, "5 Days", f"{TODAY}.md")
         self.assertIn("[[Oops]]", V.read(daily))
         S.undo_done({"id": rel})
         fm = V.vaultlib(self.v).read_frontmatter(p)
@@ -301,7 +301,7 @@ class FlowTests(Base):
         self.assertEqual(w["groups"][0]["items"][0]["title"], "Essay")
 
     def test_bad_ids_rejected(self):
-        for bad in ("../../etc/passwd", "07 Map/Vision.md", "nope.md", None):
+        for bad in ("../../etc/passwd", "1 Map/Vision.md", "nope.md", None):
             with self.assertRaises(S.Bad):
                 S.finish(bad)
 
@@ -338,14 +338,14 @@ class FlowTests(Base):
         self.answer = {"actions": [{"do": "done", "task": 3}], "summary": "Finished Bank account."}
         out = S.command({"text": "opened the bank account"})
         self.assertEqual(out["done"]["title"], "Bank account")
-        self.assertIn("[[Bank account]]", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        self.assertIn("[[Bank account]]", V.read(os.path.join(self.v, "5 Days", f"{TODAY}.md")))
         S.undo_command({})
         self.assertEqual(fm(bank)["status"], "todo")
-        self.assertNotIn("[[Bank account]]", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        self.assertNotIn("[[Bank account]]", V.read(os.path.join(self.v, "5 Days", f"{TODAY}.md")))
         # 4. add files into the class folder; undo removes the new note
         self.answer = {"actions": [{"do": "add", "title": "Email the TA", "home": "CS 350", "due": d(1), "minutes": 10}], "summary": "Added Email the TA."}
         S.command({"text": "email the TA tomorrow"})
-        new = os.path.join(self.v, "01 Classes/CS 350/Assignments", f"{d(1)} Email the TA.md")
+        new = os.path.join(self.v, "2 Classes/CS 350/Assignments", f"{d(1)} Email the TA.md")
         self.assertEqual((fm(new)["points"], fm(new)["est_min"]), ("1", "10"))
         S.undo_command({})
         self.assertFalse(os.path.exists(new))
@@ -364,7 +364,7 @@ class FlowTests(Base):
 
     def test_checkin(self):
         S.checkin({"got_done": "PROJ3 spec", "in_the_way": "shorts"})
-        note = V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md"))
+        note = V.read(os.path.join(self.v, "5 Days", f"{TODAY}.md"))
         self.assertIn("- Got done that mattered: PROJ3 spec\n- Got in the way: shorts", note)
         self.assertNotIn("experiment", note)
 
@@ -381,7 +381,7 @@ class FlowTests(Base):
         self.assertEqual((ids["Body"]["level"], ids["Body"]["pts"]), (1, 0))
         st = S.state_json()["progress"]
         self.assertEqual((st["today"], sorted(st["built"])), (21, ["Lab", "Project"]))
-        goal = V.read(os.path.join(self.v, "07 Map/Goal - CS Degree.md"))
+        goal = V.read(os.path.join(self.v, "1 Map/Goal - CS Degree.md"))
         self.assertIn("> [!gp-level] Bench · level 2", goal)
         self.assertIn("**1 to Rotation**".replace("1 to", "29 to"), goal)
         self.assertIn("> [!gp-done]- Built lately · 2 total", goal)
@@ -397,8 +397,8 @@ class FlowTests(Base):
         names = [os.path.basename(x)[:-3] if x else None for x in sent]
         # Paper ignored 3 times → it stops for today and Quiz gets the 4th; then the daily cap (4) holds
         self.assertEqual(names, ["Paper", "Paper", "Quiz", None, None])
-        S.start({"id": "01 Classes/CS 350/Assignments/Paper.md"})
-        self.assertNotIn("01 Classes/CS 350/Assignments/Paper.md", S.load_state()["nudges"]["ignored"])      # starting resets it
+        S.start({"id": "2 Classes/CS 350/Assignments/Paper.md"})
+        self.assertNotIn("2 Classes/CS 350/Assignments/Paper.md", S.load_state()["nudges"]["ignored"])      # starting resets it
 
 
 @unittest.skipUnless(os.path.exists(os.path.join(REAL, "System", "scripts", "vaultlib.py")), "needs vaultlib.py")

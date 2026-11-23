@@ -38,20 +38,20 @@ put("System/schedule.md", "## Sleep\n- Daily 23:00-07:00 sleep\n\n## Busy\n- Mon
     "- Tue/Thu 13:00-14:15 Discrete Math\n")
 put("System/experiments.md", "Active: 1\nNext: 2\nDaily reward (10 pts): A pickup game.\n\n## Queue\n"
     "1. **Phone in the hallway.** It charges outside the room after 11.\n2. **Hard thing first.** Before any email.\n")
-put("07 Map/Vision.md", "---\ntype: vision\n---\n# Vision\n\nShip work people use, stay strong, stay kind.\n")
+put("1 Map/Vision.md", "---\ntype: vision\n---\n# Vision\n\nShip work people use, stay strong, stay kind.\n")
 for name, parent in (("Software Engineer", "Vision"), ("Degree", "Goal - Software Engineer"), ("Health", "Vision")):
-    put(f"07 Map/Goal - {name}.md", f"---\ntype: goal\n---\n# {name}\nPart of [[{parent}]]\n")
+    put(f"1 Map/Goal - {name}.md", f"---\ntype: goal\n---\n# {name}\nPart of [[{parent}]]\n")
 for name, parent in (("School", "Degree"), ("Body", "Health"), ("Career", "Software Engineer")):
-    put(f"07 Map/Area - {name}.md", f"---\ntype: area\n---\n# {name}\nPart of [[Goal - {parent}]]\n")
+    put(f"1 Map/Area - {name}.md", f"---\ntype: area\n---\n# {name}\nPart of [[Goal - {parent}]]\n")
 for c in ("Operating Systems", "Discrete Math", "Writing"):
-    put(f"01 Classes/{c}/{c} Hub.md", f"---\ntype: hub\nkind: class\n---\n# {c}\nPart of [[Area - School]]\n")
+    put(f"2 Classes/{c}/{c} Hub.md", f"---\ntype: hub\nkind: class\n---\n# {c}\nPart of [[Area - School]]\n")
 
 
 def task(title, cls, due=None, points=3, status="todo", done=None, mins=None):
     d = (today + dt.timedelta(days=due)).isoformat() if due is not None else ""
     extra = (f"done_date: {today - dt.timedelta(days=done)}\n" if done is not None else "") + (f"actual_min: {mins}\n" if mins else "")
     url = f'brightspace_url: "https://lms.example.edu/submit/{abs(hash(title)) % 9999}"\n' if cls in ("Operating Systems", "Discrete Math", "Writing") else ""
-    put(f"00 Inbox/Assignments/{title}.md", f"---\ntype: assignment\nclass: {cls}\ndue: {d}\nstatus: {status}\npoints: {points}\n"
+    put(f"4 Life/{title}.md", f"---\ntype: assignment\nclass: {cls}\ndue: {d}\nstatus: {status}\npoints: {points}\n"
         f"first_step: Open it\n{url}{extra}---\n# {title}\n")
 
 

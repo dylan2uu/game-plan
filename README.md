@@ -23,9 +23,9 @@ vault, and keeps every finished task linked up to the goal it serves.
 - **All tasks.** The next 7 days' work against your free time ("On track" / "Tight"), a 4-week calendar with each day's load, a "what you have" graph of open work by class (overdue in red), and every task in one list. A task's name opens it in Brightspace (in Chrome). Click a day or a class to filter.
 - **Brightspace sync.** The Chrome extension checks your submissions with the login already in Chrome: submitted there means done here, dated by the submission. Anything you mark done that Brightspace shows as not submitted gets flagged. It only reads; it never submits anything.
 - **A command bar that runs your list.** Type anything in plain words: add a task, say you finished something, move dates ("move the 3 overdue ones to tomorrow except the paper"), rename, resize ("that'll take 2 hours"), drop, reopen, or ask ("what's due Wednesday?"). One message can change several tasks. It always edits the existing task instead of making a duplicate, a date you move stays moved (the Brightspace sync won't reset it), and every command has **Undo**. Thoughts open **Spitball**: sharp questions, never a finished answer.
-- **The Scoreboard.** `07 Map/Scoreboard.md` in Obsidian (bookmarked, and linked from the app's top bar): your rank and level, every goal's level and hours, season stats (producer days, best day, streaks, week over week, your real speed vs. predicted), points by class, the last 8 weeks, and how levels and points work.
+- **The Scoreboard.** `1 Map/Scoreboard.md` in Obsidian (bookmarked, and linked from the app's top bar): your rank and level, every goal's level and hours, season stats (producer days, best day, streaks, week over week, your real speed vs. predicted), points by class, the last 8 weeks, and how levels and points work.
 - **Keys.** `/` jumps to the command bar (with example commands), `1` and `2` switch views, `Esc` closes.
-- **The map.** `07 Map/Map.canvas` in Obsidian, redrawn whenever something changes: each goal is a colored group with its level, and inside it the areas, classes and projects with their open tasks (overdue red, due within 2 days orange). Every goal, area and class note opens on a level card, what's open (with Brightspace links) and what you've built lately.
+- **The map.** `1 Map/Map.canvas` in Obsidian, redrawn whenever something changes: each goal is a colored group with its level, and inside it the areas, classes and projects with their open tasks (overdue red, due within 2 days orange). Every goal, area and class note opens on a level card, what's open (with Brightspace links) and what you've built lately.
 - **Night check-in** after 9pm: two questions, saved to the daily note.
 - **Open it from anywhere** with **⌥⌘G** (Option-Command-G), or ⌘Space → "Game Plan". It reuses the open window.
 - **Runs on its own.** Starts at login. Writes each day's note at midnight (zero days too). At most 4 macOS notifications a day, only in free time from `System/schedule.md`, never within 90 minutes of a Start, and fewer for tasks you keep ignoring.
@@ -58,10 +58,10 @@ checked against a JSON schema), Stuck and Spitball use **Sonnet**. Each call tak
 The vault is the database. There is no second task list.
 
 ```
-07 Map/Vision.md                ← Goal - …  ← Area - …  ← class/project hub  ← task notes
-00 Inbox/Ideas/                   idea notes (#idea)
-06 Daily/YYYY-MM-DD.md            what you finished that day, night check-in
-06 Daily/Weekly/                  Sunday reviews
+1 Map/Vision.md                ← Goal - …  ← Area - …  ← class/project hub  ← task notes
+4 Life/Ideas/                   idea notes (#idea)
+5 Days/YYYY-MM-DD.md            what you finished that day, night check-in
+5 Days/Weekly/                  Sunday reviews
 System/schedule.md                when you're busy (classes, work, sleep)
 System/experiments.md             the experiment queue and your daily reward
 ```

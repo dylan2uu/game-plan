@@ -31,7 +31,7 @@ def stat(rel):
     return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
 
 
-before = {r: stat(r) for r in ("01 Classes/CS 350/CS 350 Hub.md", "07 Map/Goal - CS Degree.md", "07 Map/Vision.md")}
+before = {r: stat(r) for r in ("2 Classes/CS 350/CS 350 Hub.md", "1 Map/Goal - CS Degree.md", "1 Map/Vision.md")}
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chrome")
     pg = b.new_page(viewport={"width": 1440, "height": 900})
@@ -45,7 +45,7 @@ with sync_playwright() as p:
     pg.press("#type-in", "Enter")
     expect(pg.locator("#cmd-result")).to_be_visible(timeout=90_000)
     print("command bar:", pg.locator("#cmd-result .cmd-text").inner_text())
-    added = max(glob.glob(os.path.join(a.vault, "01 Classes/CS 350/Assignments/*.md")), key=os.path.getmtime)
+    added = max(glob.glob(os.path.join(a.vault, "2 Classes/CS 350/Assignments/*.md")), key=os.path.getmtime)
     title = re.search(r"(?m)^# (.+)$", read(added)).group(1)
     assert "outline" in title.lower(), title
 
@@ -138,18 +138,18 @@ with sync_playwright() as p:
     b.close()
 
 # 6. the files
-note = [f for f in glob.glob(os.path.join(a.vault, "01 Classes/CS 350/Assignments/*.md")) if title.lower() in read(f).lower()][0]
+note = [f for f in glob.glob(os.path.join(a.vault, "2 Classes/CS 350/Assignments/*.md")) if title.lower() in read(f).lower()][0]
 text = read(note)
 for want in ("status: done", f"done_date: {today}", "actual_min:", "Part of [[CS 350 Hub]]", "#done", "est_min:", "sized: claude"):
     assert want in text, f"task note missing {want!r}"
 stem = os.path.splitext(os.path.basename(note))[0]
-daily = read(f"06 Daily/{today}.md")
+daily = read(f"5 Days/{today}.md")
 assert f"[[{stem}]]" in daily and "## Started" in daily, "daily note not updated"
 for rel, (n, pts) in before.items():
     n2, pts2 = stat(rel)
     exact = rel.endswith("CS 350 Hub.md")      # the list's Done can also feed the goals and the vision
     assert (n2 == n + 1 if exact else n2 >= n + 1) and pts2 > pts, f"{rel}: {n}/{pts} -> {n2}/{pts2}"
     print(f"{rel}: {n} → {n2} done, {pts} → {pts2} pts")
-idea = sorted(glob.glob(os.path.join(a.vault, "00 Inbox/Ideas/*.md")), key=os.path.getmtime)[-1]
+idea = sorted(glob.glob(os.path.join(a.vault, "4 Life/Ideas/*.md")), key=os.path.getmtime)[-1]
 assert "#idea" in read(idea) and "**Me:** People skip" in read(idea)
 print("E2E OK:", os.path.relpath(note, a.vault), "|", os.path.relpath(idea, a.vault))

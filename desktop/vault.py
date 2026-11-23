@@ -170,7 +170,7 @@ def load_task(vault, path, fm, text):
 def tasks(vault):
     vl = vaultlib(vault)
     out = []
-    for p in vl.iter_notes(vault, "01 Classes", "00 Inbox"):
+    for p in vl.iter_notes(vault, "2 Classes", "4 Life"):
         fm = vl.read_frontmatter(p)
         if fm.get("type") == "assignment" and fm.get("dropped") != "true":
             out.append(load_task(vault, p, fm, read(p)))
@@ -188,11 +188,11 @@ def minutes_spent(t):
 
 # ---------- the map ----------
 def nodes(vault):
-    """name -> {path, title, parent, kind} for map notes (07 Map) and class/project hubs."""
+    """name -> {path, title, parent, kind} for map notes (1 Map) and class/project hubs."""
     vl = vaultlib(vault)
     out = {}
-    paths = [p for p in vl.iter_notes(vault, "07 Map") if re.match(r"^(Vision|Goal - .+|Area - .+)\.md$", os.path.basename(p))]
-    for folder in ("01 Classes", "03 Projects"):
+    paths = [p for p in vl.iter_notes(vault, "1 Map") if re.match(r"^(Vision|Goal - .+|Area - .+)\.md$", os.path.basename(p))]
+    for folder in ("2 Classes", "3 Projects"):
         root = os.path.join(vault, folder)
         for d in sorted(os.listdir(root)) if os.path.isdir(root) else []:
             p = os.path.join(root, d, f"{d} Hub.md")
@@ -391,8 +391,8 @@ def set_block(text, block):
         pos += para.end()
     return text[:pos].rstrip("\n") + "\n\n" + block + "\n\n" + text[pos:].lstrip("\n").rstrip("\n") + ("\n" if text[pos:].strip() else "")
 
-# ---------- the map, drawn: 07 Map/Map.canvas ----------
-CANVAS = os.path.join("07 Map", "Map.canvas")
+# ---------- the map, drawn: 1 Map/Map.canvas ----------
+CANVAS = os.path.join("1 Map", "Map.canvas")
 COLORS = {"vision": "#A99AD9", "late": "#EE6A5F", "soon": "#EF7A2E", "doing": "#E0B36E"}
 BRANCH = ["#7FB2D9", "#86B98A", "#D98FA0", "#6CC0B3", "#E0B36E", "#CDBB94", "#A99AD9"]   # one color per goal branch
 
@@ -521,8 +521,8 @@ def map_canvas(vault, ts, nd, today, per_column=6):
     return p
 
 
-# ---------- 07 Map/Scoreboard.md: what levels mean, and your stats ----------
-SCOREBOARD = os.path.join("07 Map", "Scoreboard.md")
+# ---------- 1 Map/Scoreboard.md: what levels mean, and your stats ----------
+SCOREBOARD = os.path.join("1 Map", "Scoreboard.md")
 
 
 def scoreboard(vault, ts, nd, today):
@@ -633,7 +633,7 @@ def refresh_day(vault, day, ts):
 
 def unlog_day(vault, day, stem):
     """Take a task's line back out of that day's daily note (after an undo)."""
-    p = os.path.join(vault, "06 Daily", f"{day.isoformat()}.md")
+    p = os.path.join(vault, "5 Days", f"{day.isoformat()}.md")
     text = read(p)
     new = re.sub(rf"(?m)^- \[\[{re.escape(stem)}\]\].*\n?", "", text)
     if new != text:
