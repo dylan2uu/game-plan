@@ -41,12 +41,13 @@ with sync_playwright() as p:
     assert pg.evaluate("document.documentElement.scrollHeight <= innerHeight"), "page scrolls at 1440x900"
 
     # 1. type a task
-    pg.fill("#type-in", "outline the CS 350 PROJ3 design doc, due tomorrow, maybe 20 minutes")
+    pg.fill("#type-in", "add: outline the CS 350 PROJ3 design doc, due tomorrow, maybe 20 minutes")
     pg.press("#type-in", "Enter")
-    expect(pg.locator("#type-status")).to_contain_text("Filed under", timeout=90_000)
-    filed = pg.locator("#type-status").inner_text()
-    print("type box:", filed)
-    title = re.search(r"Filed under [^:]+: (.+?), \d+ pts?", filed).group(1)
+    expect(pg.locator("#cmd-result")).to_be_visible(timeout=90_000)
+    print("command bar:", pg.locator("#cmd-result .cmd-text").inner_text())
+    added = max(glob.glob(os.path.join(a.vault, "01 Classes/CS 350/Assignments/*.md")), key=os.path.getmtime)
+    title = re.search(r"(?m)^# (.+)$", read(added)).group(1)
+    assert "outline" in title.lower(), title
 
     # bring it to the top (skips only last for today)
     for _ in range(25):

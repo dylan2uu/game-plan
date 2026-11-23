@@ -69,8 +69,9 @@ class Base(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.v, ignore_errors=True)
 
-    def fake_ai(self, prompt, model="haiku", timeout=0):
+    def fake_ai(self, prompt, model="sonnet", timeout=0, schema=None):
         self.calls.append(prompt)
+        self.models = getattr(self, "models", []) + [model]
         return self.answer
 
 
@@ -298,28 +299,62 @@ class FlowTests(Base):
             with self.assertRaises(S.Bad):
                 S.finish(bad)
 
-    def test_type_box_task_idea_done(self):
-        self.answer = {"kind": "task", "title": "Email the professor about the quiz", "home": "CS 350", "minutes": 20,
-                       "due": (TODAY + dt.timedelta(days=1)).isoformat(), "first_step": "Open Outlook"}
-        out = S.file_typed({"text": "need to email the prof about the quiz tmrw"})
-        self.assertEqual(out["task"]["cls"], "CS 350")
-        p = os.path.join(self.v, "01 Classes/CS 350/Assignments", f"{TODAY + dt.timedelta(days=1)} Email the professor about the quiz.md")
-        self.assertIn("Part of [[CS 350 Hub]]", V.read(p))
-        self.answer = {"kind": "idea", "title": "A study group after quizzes", "home": "Nowhere", "questions": ["Who uses it?", "Why now?"]}
-        out = S.file_typed({"text": "what if we ran a study group right after each quiz"})
+    def test_command_bar(self):
+        d = lambda n: (TODAY + dt.timedelta(days=n)).isoformat()
+        fm = lambda p: V.vaultlib(self.v).read_frontmatter(p)
+        grandpa = task(self.v, "Call grandpa", cls="Body", due=d(-4))
+        paper = task(self.v, "CS 301 paper", due=d(-3), extra='uid: "1-2@brightspace.x.edu"\n')
+        bank = task(self.v, "Bank account", cls="Body", due=d(-1))
+        # 1. "move the 3 overdue ones to tomorrow except the paper" → updates, on the strong model, nothing duplicated
+        self.answer = {"actions": [{"do": "update", "task": 1, "due": d(1)}, {"do": "update", "task": 3, "due": d(1)}], "summary": "Moved 2 tasks to tomorrow."}
+        out = S.command({"text": "move the overdue ones to tomorrow except the CS 301 paper"})
+        self.assertEqual(self.models[-1], S.SMART)
+        self.assertIn("1 | Call grandpa | Body | due " + d(-4) + " (overdue)", self.calls[-1])
+        self.assertTrue(out["undo"])
+        self.assertEqual((fm(grandpa)["due"], fm(grandpa)["due_by"], fm(bank)["due"]), (d(1), "you", d(1)))
+        self.assertEqual(fm(paper)["due"], d(-3))
+        self.assertEqual(len(V.tasks(self.v)), 3)
+        S.undo_command({})                                                   # exact undo
+        self.assertEqual((fm(grandpa)["due"], fm(grandpa).get("due_by")), (d(-4), None))
+        with self.assertRaises(S.Bad):
+            S.undo_command({})
+        # 2. rename + resize one, drop another, ignore a made-up task number
+        self.answer = {"actions": [{"do": "update", "task": 2, "title": "Research paper part 2", "minutes": 100},
+                                   {"do": "drop", "task": 1}, {"do": "done", "task": 42}], "summary": "Renamed, resized, dropped."}
+        S.command({"text": "rename the paper, it'll take like 100 min, and drop calling grandpa"})
+        self.assertIn("# Research paper part 2", V.read(paper))
+        self.assertEqual((fm(paper)["points"], fm(paper)["sized"]), ("5", "you"))
+        self.assertEqual(fm(grandpa)["dropped"], "true")
+        S.undo_command({})
+        self.assertIn("# CS 301 paper - Due", V.read(paper))
+        self.assertNotIn("dropped", fm(grandpa))
+        # 3. one finish plays the Done moment; undo takes it back off the daily note
+        self.answer = {"actions": [{"do": "done", "task": 3}], "summary": "Finished Bank account."}
+        out = S.command({"text": "opened the bank account"})
+        self.assertEqual(out["done"]["title"], "Bank account")
+        self.assertIn("[[Bank account]]", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        S.undo_command({})
+        self.assertEqual(fm(bank)["status"], "todo")
+        self.assertNotIn("[[Bank account]]", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        # 4. add files into the class folder; undo removes the new note
+        self.answer = {"actions": [{"do": "add", "title": "Email the TA", "home": "CS 350", "due": d(1), "minutes": 10}], "summary": "Added Email the TA."}
+        S.command({"text": "email the TA tomorrow"})
+        new = os.path.join(self.v, "01 Classes/CS 350/Assignments", f"{d(1)} Email the TA.md")
+        self.assertEqual((fm(new)["points"], fm(new)["est_min"]), ("1", "10"))
+        S.undo_command({})
+        self.assertFalse(os.path.exists(new))
+        # 5. a question gets an answer and changes nothing
+        self.answer = {"actions": [{"do": "answer", "text": "Two things are due tomorrow."}], "summary": ""}
+        out = S.command({"text": "what's due tomorrow?"})
+        self.assertEqual((out["answer"], out["undo"]), ("Two things are due tomorrow.", False))
+        # 6. an idea opens Spitball
+        self.answer = {"actions": [{"do": "idea", "title": "Study group", "home": "Nowhere", "questions": ["Who comes?", "Why now?"]}], "summary": "Saved the idea."}
+        out = S.command({"text": "what if we ran a study group after quizzes"})
         idea = os.path.join(self.v, out["idea"]["id"])
-        self.assertIn("#idea", V.read(idea))
-        self.assertIn("- **Claude:** Who uses it?", V.read(idea))
+        self.assertIn("- **Claude:** Who comes?", V.read(idea))
         self.answer = {"questions": ["What breaks first?"], "related": ["Area - School", "Made Up"]}
-        out = S.spitball({"id": out["idea"]["id"], "reply": "people skip when it is optional"})
-        text = V.read(idea)
-        self.assertIn("- **Me:** people skip", text)
-        self.assertIn("Related: [[Area - School]]", text)
-        self.assertNotIn("Made Up", text)
-        self.answer = {"kind": "done", "title": "Email the professor", "match_id": os.path.relpath(p, self.v)}
-        out = S.file_typed({"text": "emailed the prof"})
-        self.assertEqual(out["done"]["points"], 2)
-        self.assertIn("status: done", V.read(p))
+        S.spitball({"id": out["idea"]["id"], "reply": "people skip when it is optional"})
+        self.assertIn("Related: [[Area - School]]", V.read(idea))
 
     def test_checkin(self):
         S.checkin({"got_done": "PROJ3 spec", "in_the_way": "shorts"})

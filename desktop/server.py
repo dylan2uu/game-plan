@@ -68,23 +68,38 @@ def claude_bin():
     return shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
 
 
-def ai(prompt, model="haiku", timeout=120):
-    """Ask Claude for JSON. The vault's CLAUDE.md pulls in about-me.md, so it always knows Dylan."""
-    cmd = [claude_bin(), "-p", "--model", model, "--strict-mcp-config", "--tools", "", "--no-session-persistence",
-           "--settings", '{"disableAllHooks": true}', prompt + "\n\nReply with ONLY one JSON object. No prose, no code fences."]
+SMART, COACH = "opus", "sonnet"      # opus: the command bar + sizing (they change your list); sonnet: Stuck + Spitball
+
+
+def ai(prompt, model=COACH, timeout=120, schema=None):
+    """Ask Claude through `claude -p` (your subscription) from the vault folder, so the vault's CLAUDE.md comes along.
+    With a schema, the CLI validates the answer and hands back `structured_output`, so it always parses."""
+    cmd = [claude_bin(), "-p", "--model", model, "--fallback-model", "sonnet" if model != "sonnet" else "haiku",
+           "--strict-mcp-config", "--tools", "", "--no-session-persistence", "--settings", '{"disableAllHooks": true}',
+           "--output-format", "json"] + (["--json-schema", json.dumps(schema)] if schema else []) + \
+          [prompt + ("" if schema else "\n\nReply with ONLY one JSON object. No prose, no code fences.")]
     try:
         r = subprocess.run(cmd, cwd=CFG["vault"], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise Bad("Claude took too long. Try again.")
     except OSError:
         raise Bad("The claude command isn't installed.")
-    out = r.stdout.strip()
-    i, j = out.find("{"), out.rfind("}")
     try:
-        return json.loads(out[i:j + 1])
+        d = json.loads(r.stdout)
+    except ValueError:
+        print("ai: unreadable output:", (r.stdout or r.stderr)[:300], flush=True)
+        raise Bad("Claude didn't answer. Is Claude Code signed in? Try again.")
+    if d.get("is_error"):
+        print("ai error:", str(d.get("result"))[:300], flush=True)
+        raise Bad("Claude couldn't answer right now: " + str(d.get("result") or "unknown error")[:120])
+    if schema and isinstance(d.get("structured_output"), dict):
+        return d["structured_output"]
+    text = str(d.get("result") or "")
+    i, j = text.find("{"), text.rfind("}")
+    try:
+        return json.loads(text[i:j + 1])
     except ValueError:
         raise Bad("Claude's answer wasn't readable. Try again.")
-
 
 # ---------- helpers ----------
 def note_path(rel, kind="assignment"):
@@ -315,7 +330,7 @@ def size_open(limit=15):
              "graded paper or project milestone several hours. Calibrate on his history.\n"
              "History (task | class | minutes he actually took):\n" + "\n".join(f"{t['title']} | {t['cls']} | {t['actual']}" for t in timed) +
              "\n\nOpen tasks (n | title | class | kind):\n" + "\n".join(f"{i} | {t['title']} | {t['cls']} | {kind(t)}" for i, t in enumerate(todo, 1)) +
-             '\nReturn {"sizes": [{"n": number, "minutes": number}]}')
+             '\nReturn {"sizes": [{"n": number, "minutes": number}]}', SMART)
     by = {str(i): t for i, t in enumerate(todo, 1)}                     # short keys: long file names get mangled
     sized = []
     with LOCK:
@@ -454,53 +469,164 @@ def stuck(body):
     return {"level": level, "text": str(res.get("text") or "").strip()[:1500]}
 
 
-def file_typed(body):
-    """The type box: Claude files it as a task, a finished thing, or an idea, and links it up."""
-    text = text_arg(body, "text", 500)
-    vault, today = CFG["vault"], dt.date.today()
+CMD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "actions": {"type": "array", "items": {"type": "object", "properties": {
+            "do": {"type": "string", "enum": ["add", "done", "update", "drop", "reopen", "idea", "answer"]},
+            "task": {"type": "integer", "description": "number of an existing task from the lists"},
+            "title": {"type": "string"}, "home": {"type": "string"},
+            "due": {"type": "string", "description": "YYYY-MM-DD, or 'none' to clear it"},
+            "minutes": {"type": "integer"}, "text": {"type": "string"},
+            "questions": {"type": "array", "items": {"type": "string"}}},
+            "required": ["do"]}},
+        "summary": {"type": "string", "description": "what you did, past tense, at most 18 words, no advice"}},
+    "required": ["actions", "summary"]}
+SNAP = ("status", "due", "due_by", "points", "est_min", "sized", "class", "dropped", "done_date", "actual_min", "started_at")
+
+
+def snapshot(path):
+    fm = V.vaultlib(CFG["vault"]).read_frontmatter(path)
+    h1 = re.search(r"(?m)^# (.+)$", V.read(path))
+    return {"path": path, "fields": {k: fm.get(k) for k in SNAP}, "h1": h1.group(1) if h1 else None}
+
+
+def set_title(path, title):
+    text = V.read(path)
+    V.write(path, re.sub(r"(?m)^# .+$", lambda m: "# " + title, text, count=1))
+
+
+def command(body):
+    """The command bar: Claude (Opus) turns what you typed into actions on your list. Every change can be undone."""
+    text = text_arg(body, "text", 600)
+    vault, t0 = CFG["vault"], now()
+    today = t0.date()
     with LOCK:
         ts, nd = V.tasks(vault), V.nodes(vault)
     homes = V.homes(nd)
-    open_ts = [t for t in ts if t["status"] != "done"][:40]
-    res = ai(f"Dylan typed this into Game Plan's one box: \"\"\"{text}\"\"\"\nToday is {today:%A} {today}.\n"
-             f"Homes (pick exactly one, or \"\"): {', '.join(homes)}\n"
-             "Open tasks (id | title | home):\n" + "\n".join(f"{t['id']} | {t['title']} | {t['cls']}" for t in open_ts) + "\n\n"
-             "kind: \"task\" = something to do. \"done\" = he says he already did it (past tense); if it is one of the open "
-             "tasks, set match_id. \"idea\" = a thought, plan, question or opinion to think through.\n"
-             'Return {"kind": "task|done|idea", "title": "short, his words, max 70 chars", "home": "...", '
-             '"minutes": realistic minutes of focused work for him, "due": "YYYY-MM-DD or empty", '
-             '"first_step": "a 2-minute physical first action, max 100 chars (tasks only)", "match_id": "id or empty", '
-             '"questions": ["ideas only: 2-3 sharp questions, or one counter-argument. Never a finished answer."]}')
-    kind = res.get("kind") if res.get("kind") in ("task", "done", "idea") else "task"
-    title = V.vaultlib(vault).safe_name(str(res.get("title") or text), 70)
-    cls = str(res.get("home") or "")
-    cls = cls if cls in homes else "Unsorted"
-    due = V.date_or_none(res.get("due"))
-    step = re.sub(r"\s+", " ", str(res.get("first_step") or "")).strip()[:120]
-    try:
-        mins = max(5, min(600, int(float(res.get("minutes") or 0)))) or None
-    except (TypeError, ValueError):
-        mins = None
-    pts = V.points_for(mins) if mins else V.snap_points(res.get("points"))
-    if kind == "done":
-        match = next((t for t in open_ts if t["id"] == res.get("match_id")), None)
-        rel = match["id"] if match else os.path.relpath(create_task(title, cls, due, pts, step, est=mins), vault)
-        return {"kind": "done", "done": finish(rel)}
-    if kind == "idea":
-        qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (res.get("questions") or []) if str(q).strip()][:3]
-        with LOCK:
-            folder = os.path.join(vault, "00 Inbox", "Ideas")
-            path = unique_path(folder, V.vaultlib(vault).safe_name(f"{today} {title}"))
-            parent = V.home(nd, cls)
-            V.write(path, f"---\ntype: idea\ndate: {today}\nclass: {cls}\n---\n# {title}\n"
-                    + (f"Part of [[{parent}]]\n" if parent else "") + f"\n#idea\n\n## Thought\n{text}\n\n## Spitball\n"
-                    + "".join(f"- **Claude:** {q}\n" for q in qs))
-        return {"kind": "idea", "idea": {"id": os.path.relpath(path, vault), "title": title, "cls": cls, "questions": qs}}
+    open_ts = sorted((t for t in ts if t["status"] != "done"), key=lambda t: (t["due"] or dt.date.max, t["title"]))
+    done_ts = sorted((t for t in ts if t["status"] == "done" and t["done_date"] and (today - t["done_date"]).days <= 7),
+                     key=lambda t: t["done_date"], reverse=True)[:30]
+    ref = {i: t for i, t in enumerate(open_ts, 1)}
+    ref.update({100 + i: t for i, t in enumerate(done_ts, 1)})
+    days = ", ".join(f"{today + dt.timedelta(days=k):%a} {today + dt.timedelta(days=k)}" for k in range(1, 9))
+    line = lambda n, t: (f"{n} | {t['title']} | {t['cls']} | " + (f"due {t['due']}{' (overdue)' if t['due'] < today else ''}" if t["due"] else "no due date")
+                         + f" | {t['points']} pts | {t['status']}")
+    res = ai(f"You are the command bar of Dylan's Game Plan. Turn what he typed into actions on his task list.\n"
+             f"Today is {today:%A} {today}. Next days: {days}.\nHomes (classes, projects, areas): {', '.join(homes)}\n\n"
+             "Open tasks (n | title | home | due | points | status):\n" + "\n".join(line(n, t) for n, t in ref.items() if n < 100) +
+             "\n\nFinished in the last 7 days (n | title | home | finished):\n" +
+             "\n".join(f"{n} | {t['title']} | {t['cls']} | {t['done_date']}" for n, t in ref.items() if n >= 100) +
+             f'\n\nHe typed: """{text}"""\n\n'
+             "Actions: add = a NEW thing to do (title in his words, home, due if given, realistic minutes for him). "
+             "done = he finished or submitted existing task(s). update = change existing task(s): due (move, push, reschedule, "
+             "'is due'), title (rename), minutes (how big it is), home. drop = he no longer needs to do it. reopen = a finished task "
+             "isn't actually finished. idea = a thought or plan to think through (not a to-do): 2-3 sharp questions, never an answer. "
+             "answer = he asks about his tasks or schedule: 1-3 short sentences, using only the lists.\n"
+             "Rules: if he is talking about a task on the lists, change THAT task; never add a duplicate. One message can change "
+             "several tasks (e.g. 'move the 3 overdue ones to tomorrow except the CS 301 paper' is 3 update actions). Resolve days "
+             f"with the dates above (tomorrow = {today + dt.timedelta(days=1)}). Never invent tasks. If it's truly unclear, use one "
+             "answer action that asks a short question.", SMART, schema=CMD_SCHEMA)
+    actions = [a for a in (res.get("actions") or []) if isinstance(a, dict)][:25]
+    changes, created, moved, finished, out = [], [], [], [], {"summary": str(res.get("summary") or "").strip()[:200]}
+    done_card = None
     with LOCK:
-        create_task(title, cls, due, pts, step, est=mins)
-        V.ensure_vault(vault)
-    return {"kind": "task", "task": {"title": title, "cls": cls, "points": pts, "minutes": mins,
-                                     "due": due.isoformat() if due else None}}
+        for a in actions:
+            do, t = a.get("do"), ref.get(a.get("task")) if isinstance(a.get("task"), int) else None
+            if do in ("done", "update", "drop", "reopen") and not t:
+                continue
+            if do in ("done", "update", "drop") and t["status"] == "done" and do != "update":
+                continue
+            if t:
+                changes.append(snapshot(t["path"]))
+            if do == "done":
+                done_card = finish(t["id"])
+                finished.append(t["title"])
+            elif do == "drop":
+                V.set_fields(t["path"], dropped="true", started_at=None)
+                moved.append(t["title"])
+            elif do == "reopen" and t["status"] == "done":
+                undo_done({"id": t["id"]})
+                moved.append(t["title"])
+            elif do == "update":
+                fields = {}
+                due = str(a.get("due") or "").strip()
+                if due.lower() == "none":
+                    fields.update(due="", due_by="you")
+                elif V.date_or_none(due):
+                    fields.update(due=V.date_or_none(due).isoformat(), due_by="you")
+                if a.get("minutes"):
+                    m = max(5, min(600, int(a["minutes"])))
+                    fields.update(est_min=m, points=V.points_for(m), sized="you")
+                if a.get("home") in homes and a["home"] != t["cls"]:
+                    fields["class"] = a["home"]
+                    parent = V.home(nd, a["home"])
+                    V.write(t["path"], re.sub(r"(?m)^Part of \[\[[^\]]+\]\]", f"Part of [[{parent}]]", V.read(t["path"]), count=1))
+                if fields:
+                    V.set_fields(t["path"], **fields)
+                if str(a.get("title") or "").strip() and a["title"].strip() != t["title"]:
+                    set_title(t["path"], V.vaultlib(vault).safe_name(a["title"], 90))
+                moved.append(t["title"])
+            elif do == "add":
+                title = V.vaultlib(vault).safe_name(str(a.get("title") or text), 70)
+                cls = a.get("home") if a.get("home") in homes else "Unsorted"
+                try:
+                    mins = max(5, min(600, int(a.get("minutes") or 0))) or None
+                except (TypeError, ValueError):
+                    mins = None
+                p = create_task(title, cls, V.date_or_none(a.get("due")), V.points_for(mins) if mins else 2, est=mins)
+                created.append(p)
+                moved.append(title)
+            elif do == "idea":
+                title = V.vaultlib(vault).safe_name(str(a.get("title") or text), 70)
+                cls = a.get("home") if a.get("home") in homes else "Unsorted"
+                qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (a.get("questions") or []) if str(q).strip()][:3]
+                path = unique_path(os.path.join(vault, "00 Inbox", "Ideas"), V.vaultlib(vault).safe_name(f"{today} {title}"))
+                parent = V.home(nd, cls)
+                V.write(path, f"---\ntype: idea\ndate: {today}\nclass: {cls}\n---\n# {title}\n" + (f"Part of [[{parent}]]\n" if parent else "")
+                        + f"\n#idea\n\n## Thought\n{text}\n\n## Spitball\n" + "".join(f"- **Claude:** {q}\n" for q in qs))
+                created.append(path)
+                out["idea"] = {"id": os.path.relpath(path, vault), "title": title, "cls": cls, "questions": qs}
+            elif do == "answer":
+                out["answer"] = str(a.get("text") or "").strip()[:600]
+        if changes or created:
+            st = load_state()
+            st["last_command"] = {"text": text, "at": t0.isoformat(), "changes": changes, "created": created}
+            save_state(st)
+            V.ensure_vault(vault)
+    out["undo"] = bool(changes or created)
+    if done_card and len(finished) == 1 and not moved:
+        out["done"] = done_card                                    # one finish: play the Done moment
+    if not out["summary"]:
+        out["summary"] = "Done." if out["undo"] else "Nothing to change."
+    return out
+
+
+def undo_command(body):
+    """Put back exactly what the last command changed (and remove anything it created)."""
+    vault = CFG["vault"]
+    with LOCK:
+        st = load_state()
+        last = st.get("last_command")
+        if not last:
+            raise Bad("Nothing to undo.")
+        for c in reversed(last["changes"]):
+            fm = V.vaultlib(vault).read_frontmatter(c["path"])
+            if fm.get("status") == "done" and c["fields"].get("status") != "done":
+                day = V.date_or_none(fm.get("done_date"))
+                if day:
+                    V.unlog_day(vault, day, os.path.splitext(os.path.basename(c["path"]))[0])
+            V.set_fields(c["path"], **{k: (v if v not in (None, "") else None) for k, v in c["fields"].items()})
+            if c["h1"]:
+                set_title(c["path"], c["h1"])
+        for p in last["created"]:
+            if os.path.isfile(p) and os.path.realpath(p).startswith(os.path.realpath(vault) + os.sep):
+                os.remove(p)
+        st["last_command"] = None
+        save_state(st)
+        ts, _ = V.ensure_vault(vault)
+        V.refresh_day(vault, dt.date.today(), ts)
+    return {"summary": f"Undid: {last['text'][:80]}"}
 
 
 def spitball(body):
@@ -672,7 +798,8 @@ ROUTES = {
     "/api/stuck": stuck,
     "/api/undo": lambda b: (undo_done(b), {})[1],
     "/api/size": lambda b: (resize(b), {})[1],
-    "/api/type": file_typed,
+    "/api/command": command,
+    "/api/command/undo": undo_command,
     "/api/spitball": spitball,
     "/api/checkin": lambda b: (checkin(b), {})[1],
 }

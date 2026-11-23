@@ -22,7 +22,7 @@ vault, and keeps every finished task linked up to the goal it serves.
 - **Today and who you're becoming.** How many tasks you finished today and what they were, points against 10 (a *producer day*), and a level for each goal: every finished point is proof for the person you're becoming. **How points work** explains it.
 - **All tasks.** The next 7 days' work against your free time ("On track" / "Tight"), a 4-week calendar with each day's load, a "what you have" graph of open work by class (overdue in red), and every task in one list. A task's name opens it in Brightspace (in Chrome). Click a day or a class to filter.
 - **Brightspace sync.** The Chrome extension checks your submissions with the login already in Chrome: submitted there means done here, dated by the submission. Anything you mark done that Brightspace shows as not submitted gets flagged. It only reads; it never submits anything.
-- **One box for everything.** Type a task, something you finished, or a thought. Claude files it, links it to the right class and goal, and sizes it. Thoughts open **Spitball**: sharp questions, never a finished answer.
+- **A command bar that runs your list.** Type anything in plain words: add a task, say you finished something, move dates ("move the 3 overdue ones to tomorrow except the paper"), rename, resize ("that'll take 2 hours"), drop, reopen, or ask ("what's due Wednesday?"). One message can change several tasks. It always edits the existing task instead of making a duplicate, a date you move stays moved (the Brightspace sync won't reset it), and every command has **Undo**. Thoughts open **Spitball**: sharp questions, never a finished answer.
 - **The map.** `07 Map/Map.canvas` in Obsidian, redrawn whenever something changes: each goal is a colored group with its level, and inside it the areas, classes and projects with their open tasks (overdue red, due within 2 days orange). Every goal, area and class note opens on a level card, what's open (with Brightspace links) and what you've built lately.
 - **Night check-in** after 9pm: two questions, saved to the daily note.
 - **Open it from anywhere** with **⌥⌘G** (Option-Command-G), or ⌘Space → "Game Plan". It reuses the open window.
@@ -48,6 +48,10 @@ Points are proof. Every finished task is evidence for the person you're becoming
 - **Not-zero streak.** Any day with at least 1 point.
 
 ## How it works
+
+**AI:** everything runs through `claude -p` (your Claude subscription, no API key) from the vault folder, so the vault's
+`CLAUDE.md` gives Claude your context. The command bar and task sizing use **Opus** (they change your list; answers are
+checked against a JSON schema), Stuck and Spitball use **Sonnet**. Each call takes about 2–4 seconds.
 
 The vault is the database. There is no second task list.
 

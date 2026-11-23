@@ -416,21 +416,36 @@ function say(msg, err) {
   if (msg) sayTimer = setTimeout(() => (el.textContent = ""), err ? 9000 : 6000);
 }
 
+let resultTimer = null;
+function showResult(r) {
+  const el = $("#cmd-result");
+  el.innerHTML = `<span class="cmd-text">${esc(r.summary)}${r.answer ? `<span class="cmd-answer">${esc(r.answer)}</span>` : ""}</span>
+    ${r.undo ? `<button class="mini" id="cmd-undo">Undo</button>` : ""}<button class="quiet" id="cmd-x" aria-label="Dismiss">✕</button>`;
+  el.hidden = false;
+  clearTimeout(resultTimer);
+  resultTimer = setTimeout(() => (el.hidden = true), r.answer ? 30000 : 15000);
+  $("#cmd-x").onclick = () => (el.hidden = true);
+  const u = $("#cmd-undo");
+  if (u) u.onclick = async () => {
+    u.disabled = true;
+    try { const x = await api("/api/command/undo", {}); render(x.state); showResult({ summary: x.summary }); } catch (err) { say(err.message, true); }
+  };
+}
+
 $("#typebox").onsubmit = async (e) => {
   e.preventDefault();
   const input = $("#type-in"), text = input.value.trim();
   if (!text) return;
   input.disabled = true;
-  say("Filing…");
+  say("Working on it…");
   try {
-    const r = await api("/api/type", { text });
+    const r = await api("/api/command", { text });
     input.value = "";
-    if (r.kind === "task") {
-      const t = r.task;
-      say(`Filed under ${t.cls}: ${t.title}, ${pts(t.points)}${t.due ? ", due " + shortDay(t.due) : ""}.`);
-    } else if (r.kind === "done") { say(""); burst(r.done, r.done.id); }
-    else { say("Idea saved to your vault."); spitball(r.idea); }
+    say("");
     render(r.state);
+    if (r.done) burst(r.done, r.done.id);
+    if (r.idea) spitball(r.idea);
+    showResult(r);
   } catch (err) { say(err.message, true); }
   finally { input.disabled = false; if ($("#sheet-wrap").hidden) input.focus(); }
 };
