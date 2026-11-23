@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Game Plan Focus",
-  "version": "3.0.0",
-  "description": "Game Plan's blocker: during a timer, distracting sites show a back-to-work screen; 10:30pm-7am, streaming sites need a typed sentence to open.",
+  "version": "3.1.0",
+  "description": "Game Plan's helper: blocks distractions during a timer, locks streaming sites 10:30pm-7am behind a typed sentence, and checks Brightspace so anything you submitted there is marked done in Game Plan.",
   "permissions": [
     "tabs",
     "storage",
@@ -29,5 +29,8 @@
     "16": "icon-16.png",
     "48": "icon-48.png",
     "192": "icon-192.png"
-  }
+  },
+  "optional_host_permissions": [
+    "https://*/*"
+  ]
 }

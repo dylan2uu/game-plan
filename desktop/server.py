@@ -122,7 +122,7 @@ def view(t, why, nd):
     up = V.done_chain(nd, t["cls"])
     return {"id": t["id"], "title": t["title"], "cls": t["cls"], "points": t["points"], "status": t["status"],
             "due": t["due"].isoformat() if t["due"] else None, "why": why, "est": V.est_min(t),
-            "first_step": t["first_step"], "url": t["url"], "chain": up + ["Vision"] if up else ["Unsorted"],
+            "first_step": t["first_step"], "url": t["url"], "bs": bool(bs_item(t["url"])), "chain": up + ["Vision"] if up else ["Unsorted"],
             "note": "obsidian://open?path=" + urllib.parse.quote(t["path"])}
 
 
@@ -173,53 +173,151 @@ def state_json():
     if sess and (sess.get("id") not in by_id or by_id[sess["id"]]["status"] == "done"):
         sess = None
     if sess:
-        hero = view(by_id[sess["id"]], "Timer's running. Stay on the first step.", nd)
-        hero.update(started_at=sess["started_at"], step=sess["step"], minutes=sess["est"])
+        hero = view(by_id[sess["id"]], "Timer's running. Stay on this one.", nd)
+        hero.update(started_at=sess["started_at"], minutes=sess["est"], guessed=bool(sess.get("guessed")))
     else:
         pick = (st.get("pick") or {}) if (st.get("pick") or {}).get("date") == today.isoformat() else {}
         chosen = next(((t, "You picked this one from your list.") for t, _ in ranked if t["id"] == pick.get("id")), None)
         hero = view(*(chosen or ranked[0]), nd) if ranked else None
-    win = [t for t in ts if t["due"] and today <= t["due"] <= today + dt.timedelta(days=6)]
-    groups = {}
-    for t in sorted(win, key=lambda t: (t["due"], t["title"])):
-        groups.setdefault(t["cls"], []).append({"id": t["id"], "title": t["title"], "points": t["points"],
-                                               "done": t["status"] == "done", "due": f"{t['due']:%a}"})
+    week = week_summary(ts, t0, sched)
+    unsub = set(st.get("unsubmitted", []))
     ex = V.experiments(vault)
     daily = os.path.join(vault, "06 Daily", f"{today.isoformat()}.md")
     review_due = today.weekday() == 6 and not os.path.exists(V.weekly_path(vault, today))
     return {
-        "now": t0.isoformat(), "today": today.isoformat(), "hero": hero, "left": max(0, len(ranked) - 1),
-        "week": {"done": sum(t["status"] == "done" for t in win), "total": len(win),
-                 "groups": [{"cls": c, "items": items} for c, items in groups.items()]},
-        "progress": dict(V.progress(ts, today), reward=reward(vault)),
+        "now": t0.isoformat(), "today": today.isoformat(), "hero": hero,
+        "next": [view(t, why, nd) for t, why in ranked if not hero or t["id"] != hero["id"]][:5],
+        "week": week, "progress": dict(V.progress(ts, today), reward=reward(vault)),
         "experiment": {"n": ex["active"], "title": ex["title"], "text": ex["text"]},
         "map": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.CANVAS),
         "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
         "review_due": review_due, "review": V.week_numbers(ts, today) if review_due else None,
         "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], status=t["status"], url=t["url"],
                      due=t["due"].isoformat() if t["due"] else None, done=t["done_date"].isoformat() if t["done_date"] else None,
+                     bs=bool(bs_item(t["url"])), unsubmitted=t["id"] in unsub,
                      note="obsidian://open?path=" + urllib.parse.quote(t["path"])) for t in ts],
+        "brightspace": dict(st.get("brightspace") or {}, requested=st.get("bs_request")),
         "busy": V.busy_now(t0, sched),
         "blocker": bool(parse_time(st.get("extension_seen")) and t0 - parse_time(st.get("extension_seen")) < dt.timedelta(minutes=3)),
     }
 
 
+def week_summary(ts, t0, sched):
+    """The next 7 days in one honest line: work left vs free time, plus what's done this week (Mon-Sun)."""
+    today = t0.date()
+    end = dt.datetime.combine(today + dt.timedelta(days=6), dt.time(23, 59))
+    left = [t for t in ts if t["status"] != "done" and t["due"] and t["due"] <= today + dt.timedelta(days=6)]
+    monday = today - dt.timedelta(days=today.weekday())
+    done = [t for t in ts if t["status"] == "done" and t["done_date"] and monday <= t["done_date"] <= today]
+    need, free = sum(V.est_min(t) for t in left), V.free_minutes(t0, end, sched)
+    late = sum(1 for t in left if t["due"] < today)
+    verdict = ("Nothing due this week. Get ahead, or rest." if not left else
+               "Tight: more work than free time. Start the biggest one today." if need > free else
+               "Busy but doable. Keep a not-zero day every day." if need > free * 0.6 else "On track.")
+    return {"left": len(left), "late": late, "pts_left": sum(t["points"] for t in left), "need_min": need, "free_min": free,
+            "done": len(done), "pts_done": sum(t["points"] for t in done), "verdict": verdict}
+
+
+# ---------- Brightspace: submitted there = done here (the Chrome extension checks with your login) ----------
+BS_LINK = re.compile(r"^https://([\w.-]+)/d2l/(?:lms/dropbox/user/folder_submit_files\.d2l\?ou=(\d+)&db=(\d+)"
+                     r"|lms/quizzing/(?:user/quiz_summary|quizzing)\.d2l\?ou=(\d+)&qi=(\d+)|le/(\d+)/discussions/topics/(\d+))")
+
+
+def bs_item(url):
+    m = BS_LINK.match(url or "")
+    if not m:
+        return None
+    g = m.groups()
+    kind, ou, item = ("dropbox", g[1], g[2]) if g[1] else ("quiz", g[3], g[4]) if g[3] else ("discussion", g[5], g[6])
+    return {"host": g[0], "kind": kind, "ou": ou, "item": item}
+
+
+def bs_tasks():
+    """What the extension should check: open Brightspace tasks, plus ones finished here in the last 2 weeks."""
+    today = dt.date.today()
+    out = []
+    for t in V.tasks(CFG["vault"]):
+        b = bs_item(t["url"])
+        recent = t["status"] == "done" and t["done_date"] and (today - t["done_date"]).days <= 14
+        if b and (t["status"] != "done" or recent):
+            out.append(dict(b, id=t["id"], title=t["title"], status=t["status"]))
+    hosts = [t["host"] for t in out]
+    return {"host": max(set(hosts), key=hosts.count) if hosts else None, "tasks": out}
+
+
+def bs_report(body):
+    """Submitted on Brightspace → done here (dated by the submission). Done here but not submitted → flagged."""
+    vault, t0 = CFG["vault"], now()
+    results = body.get("results") if isinstance(body.get("results"), list) else []
+    updated, days = [], set()
+    with LOCK:
+        by = {t["id"]: t for t in V.tasks(vault)}
+        st = load_state()
+        unsub = set(st.get("unsubmitted", []))
+        for r in results[:300]:
+            t = by.get(str((r or {}).get("id")))
+            if not t:
+                continue
+            if r.get("submitted") is True:
+                unsub.discard(t["id"])
+                if t["status"] != "done":
+                    when = parse_time(str(r.get("date") or "").replace("Z", "+00:00"))
+                    d = (when.astimezone().date() if when and when.tzinfo else when.date() if when else t0.date())
+                    V.set_fields(t["path"], status="done", done_date=d.isoformat(), submitted_on_brightspace=d.isoformat(), started_at=None)
+                    updated.append(t["title"])
+                    days.add(d)
+                    if (st.get("session") or {}).get("id") == t["id"]:
+                        st["session"] = None
+            elif r.get("submitted") is False and t["status"] == "done":
+                unsub.add(t["id"])
+        st["unsubmitted"] = sorted(unsub)
+        st["brightspace"] = {"checked_at": t0.isoformat(), "checked": len(results), "updated": updated[-12:],
+                             "error": str(body.get("error") or "")[:200]}
+        st.pop("bs_request", None)
+        save_state(st)
+        if updated:
+            ts, _ = V.ensure_vault(vault, t0.date())
+            for d in sorted(days):
+                V.refresh_day(vault, d, ts)
+    return {"updated": updated}
+
+
+def bs_request(body):
+    with LOCK:
+        st = load_state()
+        st["bs_request"] = now().isoformat()
+        save_state(st)
+
+
+def open_url(body):
+    """Open a web link in Chrome (not the default browser)."""
+    url = str(body.get("url") or "")
+    if not re.match(r"^https?://[^\s\"'<>]+$", url):
+        raise Bad("That isn't a web link.")
+    if os.environ.get("GP_NO_OPEN") != "1":
+        chrome = "/Applications/Google Chrome.app"
+        subprocess.run(["open", "-a", chrome, url] if os.path.isdir(chrome) else ["open", url], check=False)
+
+
 # ---------- actions ----------
 def start(body):
-    step, t0 = text_arg(body, "step", 140), now()
+    """One click. A minutes guess is optional; without one the task's size sets the clock."""
+    t0 = now()
     try:
-        minutes = max(1, min(600, int(body.get("minutes"))))
+        guess = max(1, min(600, int(body["minutes"]))) if body.get("minutes") not in (None, "") else None
     except (TypeError, ValueError):
-        raise Bad("How many minutes? A number, like 25.")
+        raise Bad("Minutes should be a number, like 25.")
     with LOCK:
         t = find_task(V.tasks(CFG["vault"]), body.get("id"))
-        V.set_fields(t["path"], status="doing", first_step=step, my_estimate_min=minutes, started_at=t0.isoformat())
+        V.set_fields(t["path"], status="doing", started_at=t0.isoformat(), **({"my_estimate_min": guess} if guess else {}))
+        minutes = guess or V.est_min(t)
         st = load_state()
-        st["session"] = {"id": t["id"], "title": t["title"], "step": step, "est": minutes, "started_at": t0.isoformat(), "allow": []}
+        st["session"] = {"id": t["id"], "title": t["title"], "step": "", "est": minutes, "guessed": bool(guess),
+                         "started_at": t0.isoformat(), "allow": []}
         st["last_start"] = {"id": t["id"], "at": t0.isoformat()}
         st.setdefault("nudges", {}).setdefault("ignored", {}).pop(t["id"], None)
         save_state(st)
-        log_started(t["title"], step)
+        log_started(t["title"], f"{minutes} min" + (" (my guess)" if guess else ""))
 
 
 def finish(rel):
@@ -233,6 +331,7 @@ def finish(rel):
         st = load_state()
         sess = st.get("session") if (st.get("session") or {}).get("id") == t["id"] else None
         actual = max(1, round((t0 - parse_time(sess["started_at"])).total_seconds() / 60)) if sess else t["actual"]
+        guess = sess["est"] if sess and sess.get("guessed") else t["my_est"]
         before = V.progress(ts, t0.date())["today"]
         V.set_fields(t["path"], status="done", done_date=t0.date().isoformat(), actual_min=actual, started_at=None)
         if sess:
@@ -241,8 +340,24 @@ def finish(rel):
         ts, nd = V.ensure_vault(vault, t0.date())
         V.refresh_day(vault, t0.date(), ts)
         after = V.progress(ts, t0.date())["today"]
-    return {"title": t["title"], "points": t["points"], "chain": V.done_chain(nd, t["cls"]), "est": t["my_est"], "actual": actual,
+    return {"id": t["id"], "title": t["title"], "points": t["points"], "chain": V.done_chain(nd, t["cls"]), "est": guess, "actual": actual,
             "today": after, "goal": V.DAY_GOAL, "reward_hit": before < V.DAY_GOAL <= after, "reward": reward(vault)}
+
+
+def undo_done(body):
+    """Undo a Done (a mis-click): back on the list, off today's daily note, stats redrawn."""
+    vault = CFG["vault"]
+    with LOCK:
+        p = note_path(body.get("id"))
+        fm = V.vaultlib(vault).read_frontmatter(p)
+        if fm.get("status") != "done":
+            raise Bad("That task isn't marked done.")
+        day = V.date_or_none(fm.get("done_date") or fm.get("done"))
+        V.set_fields(p, status="todo", done_date=None, done=None, actual_min=None, submitted_on_brightspace=None)
+        ts, _ = V.ensure_vault(vault)
+        if day:
+            V.unlog_day(vault, day, os.path.splitext(os.path.basename(p))[0])
+            V.refresh_day(vault, day, ts)
 
 
 def stuck(body):
@@ -370,8 +485,10 @@ def focus_view():
     st, t0 = load_state(), now()
     sess = st.get("session")
     protect = {"distractions": DISTRACTIONS, "exceptions": [], "continueDelay": 20, "classAllowMin": 10}
+    asked = parse_time(st.get("bs_request"))
+    bs_check = bool(asked and t0 - asked < dt.timedelta(minutes=10))
     if not sess:
-        return {"session": None, "protect": protect}
+        return {"session": None, "protect": protect, "bs_check": bs_check}
     elapsed = (t0 - parse_time(sess["started_at"])).total_seconds()
     try:
         p = note_path(sess["id"])
@@ -382,7 +499,7 @@ def focus_view():
                         "remainingSec": max(0, round(sess["est"] * 60 - elapsed)),
                         "protectUntil": (t0 + dt.timedelta(minutes=2)).isoformat(), "url": url,
                         "allow": [a for a in sess.get("allow", []) if parse_time(a["until"]) and parse_time(a["until"]) > t0]},
-            "protect": protect}
+            "protect": protect, "bs_check": bs_check}
 
 
 def focus_act(body):
@@ -436,8 +553,7 @@ def nudge(t0):
         n.update(sent=n["sent"] + 1, last=t0.isoformat(), last_id=pick["id"])
         n["tasks"].append(pick["id"])
         save_state(st)
-    step = re.sub(r"^([^:>]{2,40}>\s*)+[^:]{2,80}:\s*", "", pick["first_step"] or "")    # drop "Brightspace > Class > Item:"
-    notify(pick["title"], "First step: " + (step or "open it and write 3 bullets of what it's asking"))
+    notify(pick["title"], f"{V.due_words(pick, t0.date()).capitalize()} · {pick['points']} pts. Open Game Plan and press Start.")
     return pick["id"]
 
 
@@ -481,8 +597,12 @@ ROUTES = {
     "/api/done": lambda b: {"done": finish(b.get("id"))},
     "/api/skip": lambda b: (skip(b), {})[1],
     "/api/pick": lambda b: (pick(b), {})[1],
+    "/api/open": lambda b: (open_url(b), {})[1],
+    "/api/brightspace/report": bs_report,
+    "/api/brightspace/check": lambda b: (bs_request(b), {})[1],
     "/api/stop": lambda b: (focus_act({"action": "stop"}), {})[1],
     "/api/stuck": stuck,
+    "/api/undo": lambda b: (undo_done(b), {})[1],
     "/api/type": file_typed,
     "/api/spitball": spitball,
     "/api/checkin": lambda b: (checkin(b), {})[1],
@@ -535,6 +655,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, state_json())
             if path == "/api/focus":
                 return self._send(200, focus_view())
+            if path == "/api/brightspace/tasks":
+                return self._send(200, bs_tasks())
         except Exception as e:
             print("GET", path, type(e).__name__, e, flush=True)
             return self._send(500, {"error": "Something broke reading the vault. Check the server log."})

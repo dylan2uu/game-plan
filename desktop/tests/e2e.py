@@ -53,13 +53,11 @@ with sync_playwright() as p:
         if title.lower() in pg.locator(".hero .title").inner_text().lower():
             break
         pg.click("#skip")
-        pg.wait_for_timeout(250)
+        pg.wait_for_timeout(300)
     expect(pg.locator(".hero .title")).to_contain_text(title, ignore_case=True)
 
-    # 2. the two questions, then Start
-    expect(pg.locator("#start")).to_be_disabled()
-    pg.fill("#step", "Open the PROJ3 spec and list the design sections")
-    pg.fill("#mins", "20")
+    # 2. an optional guess, then Start (one click)
+    pg.click('.chip-btn[data-min="15"]')
     pg.click("#start")
     expect(pg.locator(".kicker")).to_have_text("On the clock")
     pg.wait_for_timeout(1500)
@@ -73,13 +71,13 @@ with sync_playwright() as p:
     walk = pg.locator("#burst .walk").inner_text()
     print("burst:", " ".join(walk.split()))
     assert "CS 350" in walk and "CS Degree" in walk and "Software Engineer" in walk, walk
-    expect(pg.locator("#burst .guess")).to_contain_text("You guessed 20 min")
+    expect(pg.locator("#burst .guess-line")).to_contain_text("You guessed 15 min")
     pg.click("#burst")
 
     # 3b. All tasks: Submit links, Done straight from the list, Do now sends a task to the main screen
     pg.click("#tab-all")
     expect(pg.locator("#list .row").first).to_be_visible()
-    assert pg.locator("#list a.mini.sub").count() > 0, "no Submit links in the list"
+    assert pg.locator("#list a.t[data-ext]").count() > 0, "no Brightspace links in the list"
     pg.screenshot(path=os.path.join(a.shots, "3b-all-tasks.png"))
     row = pg.locator("#list .row:has(.tick)").first
     listed_done = row.locator(".t").inner_text()
@@ -87,12 +85,24 @@ with sync_playwright() as p:
     expect(pg.locator("#burst")).to_be_visible()
     pg.click("#burst")
     expect(pg.locator("#list .row .t", has_text=listed_done)).to_have_count(0)
+    row = pg.locator("#list .row:has(.tick)").first                           # a mis-click gets undone
+    oops = row.locator(".t").inner_text().rstrip("↗")
+    row.locator(".tick").click()
+    expect(pg.locator("#undo")).to_be_visible()
+    pg.click("#undo")
+    expect(pg.locator("#list .row .t", has_text=oops)).to_have_count(1)
     row = pg.locator("#list .row:has(.tick)").nth(1)
-    picked = row.locator(".t").inner_text()
-    row.locator("[data-act=pick]").click()
+    picked = row.locator(".t").inner_text().rstrip("↗")
+    row.locator("[data-act=start]").click()                                   # Start from the list: straight onto the clock
+    expect(pg.locator(".kicker")).to_have_text("On the clock")
     expect(pg.locator(".hero .title")).to_have_text(picked)
-    expect(pg.locator(".hero .why")).to_contain_text("picked")
-    print("list: done", repr(listed_done), "| do now", repr(picked))
+    pg.click("#stop")
+    print("list: done", repr(listed_done), "| started", repr(picked))
+    assert pg.locator("#next .row").count() > 0, "Up next is empty"
+    pg.click("#how-points")
+    expect(pg.locator("#sheet h2")).to_have_text("How points work")
+    pg.screenshot(path=os.path.join(a.shots, "3c-points.png"))
+    pg.keyboard.press("Escape")
 
     # 4. an idea opens Spitball
     pg.fill("#type-in", "idea: a study group that meets right after each weekly quiz")
@@ -117,8 +127,7 @@ with sync_playwright() as p:
 # 6. the files
 note = [f for f in glob.glob(os.path.join(a.vault, "01 Classes/CS 350/Assignments/*.md")) if title.lower() in read(f).lower()][0]
 text = read(note)
-for want in ("status: done", f"done_date: {today}", "my_estimate_min: 20", "actual_min:", "Part of [[CS 350 Hub]]", "#done",
-             "first_step: Open the PROJ3 spec and list the design sections"):
+for want in ("status: done", f"done_date: {today}", "my_estimate_min: 15", "actual_min:", "Part of [[CS 350 Hub]]", "#done"):
     assert want in text, f"task note missing {want!r}"
 stem = os.path.splitext(os.path.basename(note))[0]
 daily = read(f"06 Daily/{today}.md")

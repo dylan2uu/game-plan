@@ -217,13 +217,17 @@ def set_stat(text, line):
     return text[:i] + line + "\n" + text[i:]
 
 
-def fix_task_text(text, parent, tags):
-    """Make sure a task note links up to its class/area and carries exactly the right status tags."""
+def fix_task_text(text, parent, tags, url=""):
+    """Make sure a task note links up to its class/area (and to Brightspace) and carries the right status tags."""
     fm = re.match(r"^---\n.*?\n---\n", text, re.S)
     head, body = (text[:fm.end()], text[fm.end():]) if fm else ("", text)
     if parent and not re.search(r"(?m)^Part of \[\[", body):
         h1 = re.search(r"(?m)^# .+$", body)
         body = (body[:h1.end()] + f"\nPart of [[{parent}]]" + body[h1.end():]) if h1 else f"Part of [[{parent}]]\n" + body
+    if url and "/d2l/" in url and "Open in Brightspace" not in body:
+        anchor = re.search(r"(?m)^Part of \[\[.*$", body) or re.search(r"(?m)^# .+$", body)
+        line = f"[Open in Brightspace]({url})"
+        body = (body[:anchor.end()] + "\n" + line + body[anchor.end():]) if anchor else line + "\n" + body
     stripped = re.sub(r"(?m)^#(done|overdue)[ \t]*(\n|\Z)", "", body)
     if tags:
         stripped = stripped.rstrip("\n") + "\n\n" + " ".join(tags) + "\n"
@@ -240,7 +244,7 @@ def ensure_vault(vault, today=None):
     for t in ts:
         tags = ["#done"] if t["status"] == "done" else (["#overdue"] if t["due"] and t["due"] < today else [])
         text = read(t["path"])
-        new = fix_task_text(text, home(nd, t["cls"]), tags)
+        new = fix_task_text(text, home(nd, t["cls"]), tags, t["url"])
         if new != text:
             write(t["path"], new)
         if not t["sized"]:
@@ -251,13 +255,61 @@ def ensure_vault(vault, today=None):
         if t["status"] == "done":
             for n in chain(nd, home(nd, t["cls"])):
                 by_node[n].append(t)
+    open_by = {n: [] for n in nd}
+    for t in ts:
+        if t["status"] != "done":
+            for n in chain(nd, home(nd, t["cls"])):
+                open_by[n].append(t)
     for n, info in nd.items():
         text = read(info["path"])
         new = set_stat(text, stat_line(info["title"], by_node[n]))
+        new = set_block(new, node_block(n, nd, open_by[n], by_node[n], today))
         if new != text:
             write(info["path"], new)
     map_canvas(vault, ts, nd, today)
     return ts, nd
+
+
+# ---------- what you see when you click into a map note or hub ----------
+B_START, B_END = "%% gp:start · Game Plan redraws this part %%", "%% gp:end %%"
+
+
+def task_line(t, today):
+    stem = os.path.splitext(os.path.basename(t["path"]))[0]
+    pts = f"{t['points']} pt{'s' if t['points'] != 1 else ''}"
+    if t["url"] and "/d2l/" in t["url"]:
+        return f"- [{t['title']}]({t['url']}) · {due_words(t, today)} · {pts} · [[{stem}|note]]"
+    return f"- [[{stem}|{t['title']}]] · {due_words(t, today)} · {pts}"
+
+
+def node_block(n, nd, open_ts, done_ts, today, limit=12):
+    kids = sorted((c for c in nd if nd[c]["parent"] == n), key=lambda c: nd[c]["title"].lower())
+    out = [B_START]
+    if kids:
+        out.append("**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]]" for c in kids))
+    out.append(f"### Open ({len(open_ts)})")
+    ordered = sorted(open_ts, key=lambda t: (t["due"] or dt.date.max, t["title"].lower()))
+    out += [task_line(t, today) for t in ordered[:limit]] or ["Nothing open."]
+    if len(open_ts) > limit:
+        out.append(f"- +{len(open_ts) - limit} more on the [[Map.canvas|map]]")
+    recent = sorted((t for t in done_ts if t["done_date"]), key=lambda t: t["done_date"], reverse=True)[:5]
+    if recent:
+        out.append("### Done lately")
+        out += [f"- [[{os.path.splitext(os.path.basename(t['path']))[0]}|{t['title']}]] · {short_date(t['done_date'])} · {t['points']} pts"
+                for t in recent]
+    out.append(B_END)
+    return "\n".join(out)
+
+
+def set_block(text, block):
+    """Replace the generated section; first time, it takes over a hub's Deadlines query or goes at the end."""
+    i, j = text.find(B_START), text.find(B_END)
+    if i >= 0 and j > i:
+        return text[:i] + block + text[j + len(B_END):]
+    dl = re.search(r"(?m)^## Deadlines[ \t]*\n```dataview\n.*?\n```[ \t]*\n?", text, re.S)
+    if dl:
+        return text[:dl.start()] + "## Deadlines\n" + block + "\n" + text[dl.end():]
+    return text.rstrip("\n") + "\n\n" + block + "\n"           # after your own words (goal and area notes)
 
 
 # ---------- the map, drawn: 07 Map/Map.canvas ----------
@@ -317,7 +369,9 @@ def map_canvas(vault, ts, nd, today, per_column=6):
             late, soon = t["due"] and t["due"] < today, t["due"] and 0 <= (t["due"] - today).days <= 2
             color = COLORS["late"] if late else COLORS["doing"] if t["status"] == "doing" else COLORS["soon"] if soon else None
             pts = f"{t['points']} pt{'s' if t['points'] != 1 else ''}"
-            key = text_node(_id("t-", t["id"]), f"[[{stem}|{t['title']}]]\n{due_words(t, today)} · {pts}", cx, top + i * (CARD + 12), W, CARD, color)
+            label = (f"**[{t['title']}]({t['url']})**\n{due_words(t, today)} · {pts} · [[{stem}|note]]" if t["url"] and "/d2l/" in t["url"]
+                     else f"[[{stem}|{t['title']}]]\n{due_words(t, today)} · {pts}")
+            key = text_node(_id("t-", t["id"]), label, cx, top + i * (CARD + 12), W, CARD, color)
             if i == 0:
                 edges.append({"id": _id("e-", (owner or "") + key), "fromNode": owner, "fromSide": "bottom", "toNode": key, "toSide": "top"})
             prev = key
@@ -360,7 +414,7 @@ def map_canvas(vault, ts, nd, today, per_column=6):
         cursor[0] += W + GAP
         tasks_column(text_node("unsorted", "### Unsorted\nTasks without a class yet", cx, ROW, W, 110), todo[None], 2, cx)
     text_node("legend", "**🧭 Map** · drawn by Game Plan, redrawn when anything changes\n"
-              "Purple: vision + goals · Maple: areas · Blue: classes + projects · Red: overdue · Orange: due within 2 days",
+              "Click a task's name to open it in Brightspace, *note* for its note. Red: overdue · Orange: due within 2 days",
               min(n["x"] for n in nodes) + 300 if nodes else 0, 0, 600, 90)
     out = json.dumps({"nodes": nodes, "edges": edges}, indent=1)
     p = os.path.join(vault, CANVAS)
@@ -394,6 +448,15 @@ def refresh_day(vault, day, ts):
     if new != text:
         write(p, new)
     return p
+
+
+def unlog_day(vault, day, stem):
+    """Take a task's line back out of that day's daily note (after an undo)."""
+    p = os.path.join(vault, "06 Daily", f"{day.isoformat()}.md")
+    text = read(p)
+    new = re.sub(rf"(?m)^- \[\[{re.escape(stem)}\]\].*\n?", "", text)
+    if new != text:
+        write(p, new)
 
 
 def replace_section(text, heading, body):

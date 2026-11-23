@@ -15,15 +15,29 @@ vault, and keeps every finished task linked up to the goal it serves.
 
 ## What it does
 
-- **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. Before **Start** you type your first step and how many minutes you think it takes. **Stuck** gives a question, then a hint, then a worked example of a *similar* problem, one at a time. **Submit** opens the assignment page. **Done** plays one short burst and shows the chain: `+5 pts → class → goal → bigger goal`, plus "you guessed 40 min, took 55."
-- **The week.** Everything due in the next 7 days as blocks grouped by class. Blocks shrink as you finish them.
-- **All tasks** (one click from the main screen). A 4-week calendar with each day's load in points, a "what you have" graph of open work by class (overdue in red), and every task in one list: **Submit** opens the assignment's Brightspace submit page, the circle marks it done, **Do now** sends it to the main screen. Click a day or a class to filter.
-- **Progress.** Points per day for 14 days by class, today's points against a goal of 10 (with your reward when you hit it), and a not-zero streak. Zero days show as 0.
-- **One box for everything.** Type what you're doing, need to do, or thinking. Claude files it as a task, a finished thing, or an idea, links it to the right class and goal, and sizes it. Ideas open **Spitball**: Claude answers with sharp questions or a counter-argument, never a finished answer.
-- **The map.** `07 Map/Map.canvas` in Obsidian, redrawn whenever something changes: vision, goals, areas, classes and projects as a tidy tree, with each one's open tasks underneath (overdue red, due within 2 days orange). **Open my map** opens it.
+- **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. **Start** is one click (a minutes guess is optional). **Open in Brightspace** goes straight to the assignment. **Done** plays one short burst and shows where the points go: `+5 pts → class → goal → bigger goal`, with an **Undo** if it was a mis-click. **Stuck?** gives a question, then a hint, then a worked example of a *similar* problem.
+- **Up next.** The next five tasks in order, each with Start and a done circle.
+- **Progress that means something.** Today's points against a goal of 10 (with your reward), what's done this week, the next 7 days' work against your free time ("On track" / "Tight"), and a not-zero streak. **How points work** explains the scale.
+- **All tasks.** A 4-week calendar with each day's load, a "what you have" graph of open work by class (overdue in red), and every task in one list. A task's name opens it in Brightspace (in Chrome). Click a day or a class to filter.
+- **Brightspace sync.** The Chrome extension checks your submissions with the login already in Chrome: submitted there means done here, dated by the submission. Anything you mark done that Brightspace shows as not submitted gets flagged. It only reads; it never submits anything.
+- **One box for everything.** Type a task, something you finished, or a thought. Claude files it, links it to the right class and goal, and sizes it. Thoughts open **Spitball**: sharp questions, never a finished answer.
+- **The map.** `07 Map/Map.canvas` in Obsidian, redrawn whenever something changes: vision, goals, areas, classes and projects as a tidy tree with each one's open tasks (overdue red, due within 2 days orange). Every goal, area and class note also lists what's inside it, what's open (with Brightspace links) and what's done lately.
 - **Night check-in** after 9pm and a **Sunday review**, both saved to the vault. One experiment at a time from `System/experiments.md`.
 - **Runs on its own.** Starts at login. Writes each day's note at midnight (zero days too). At most 4 macOS notifications a day, only in free time from `System/schedule.md`, never within 90 minutes of a Start, and fewer for tasks you keep ignoring.
-- **Blocker** (Chrome extension). While the timer runs, distracting sites show a back-to-work screen. From 10:30pm to 7am, streaming and short-video sites need a typed sentence to open: friction, not a wall.
+- **Blocker.** While the timer runs, distracting sites show a back-to-work screen. From 10:30pm to 7am, streaming and short-video sites need a typed sentence to open.
+
+### How points work
+
+| Points | Roughly |
+|---|---|
+| 1 | under 15 min |
+| 2 | 15–30 min |
+| 3 | 30–60 min |
+| 5 | 1–2 h |
+| 8 | 2–4 h |
+| 13 | 4 h or more |
+
+10 points in a day earns the daily reward. Any day with at least 1 point keeps the not-zero streak. Every point also adds up the chain (class → goal → vision), which you see in the Done burst, the 📊 lines in Obsidian, and the map.
 
 ## How it works
 
@@ -55,6 +69,7 @@ zsh desktop/install.sh          # login service on http://127.0.0.1:4317 + "Game
 ```
 
 Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `desktop/extension`.
+A "Connect Brightspace" page opens: press it once and allow access to your Brightspace site.
 `zsh desktop/install.sh --uninstall` removes it. Your vault is never touched by uninstalling.
 
 ## On a bad day
@@ -81,6 +96,7 @@ Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** �
 ```sh
 python3 -m unittest discover -s desktop/tests -p 'test_v3.py'                     # unit + flow tests (Claude stubbed)
 uv run --with playwright python desktop/tests/e2e.py --vault COPY --shots OUT     # real clicks, on a COPY of a vault
+/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc -m desktop/tests/bs_test.js   # Brightspace parsing
 ```
 
 ## Privacy

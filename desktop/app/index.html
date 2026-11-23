@@ -25,21 +25,18 @@
 </header>
 
 <main class="court" id="court">
-  <section class="hero" id="hero" aria-live="polite">
+  <section class="hero" aria-live="polite">
     <svg class="arc" viewBox="0 0 400 400" aria-hidden="true"><path d="M400 40 A 300 300 0 0 0 400 360"/><circle cx="400" cy="200" r="60"/></svg>
     <div class="hero-body" id="hero-body"></div>
   </section>
-
   <aside class="side">
-    <section class="week" aria-labelledby="week-h">
-      <div class="head"><h2 id="week-h">The week</h2><span class="count" id="week-count"></span></div>
-      <div id="week-groups" class="groups"></div>
+    <section class="panel up-next" aria-labelledby="next-h">
+      <div class="head"><h2 id="next-h">Up next</h2><button class="link-btn" id="see-all">See all tasks</button></div>
+      <div id="next" class="rows"></div>
     </section>
-    <section class="progress" aria-labelledby="prog-h">
-      <div class="head"><h2 id="prog-h">Progress</h2><span class="count" id="streak"></span></div>
-      <div class="today" id="today"></div>
-      <div id="chart" class="chart"></div>
-      <div id="legend" class="legend"></div>
+    <section class="panel progress" aria-labelledby="prog-h">
+      <div class="head"><h2 id="prog-h">Progress</h2><button class="link-btn" id="how-points">How points work</button></div>
+      <div id="progress"></div>
     </section>
   </aside>
 </main>
@@ -60,6 +57,7 @@
   </section>
   <section class="panel list" aria-labelledby="list-h">
     <div class="head"><h2 id="list-h">All tasks</h2><span class="count" id="list-count"></span></div>
+    <p class="sync" id="sync" aria-live="polite"></p>
     <div class="filters" id="filters"></div>
     <div id="list" class="rows"></div>
   </section>
@@ -69,7 +67,7 @@
 
 <form class="typebox" id="typebox" autocomplete="off">
   <label class="sr" for="type-in">Type anything</label>
-  <input id="type-in" maxlength="500" placeholder="Type what you're doing, need to do, or thinking. Enter files it.">
+  <input id="type-in" name="text" maxlength="500" spellcheck="true" placeholder="Type a task, something you finished, or a thought…">
   <span class="type-status" id="type-status" role="status"></span>
 </form>
 

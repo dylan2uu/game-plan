@@ -165,11 +165,11 @@ class FlowTests(Base):
     def test_start_then_done(self):
         p = task(self.v, "PROJ3", due=TODAY.isoformat(), extra="points: 8\n")
         rel = os.path.relpath(p, self.v)
-        S.start({"id": rel, "step": "Open the spec", "minutes": "40"})
+        S.start({"id": rel, "minutes": "40"})
         fm = V.vaultlib(self.v).read_frontmatter(p)
-        self.assertEqual((fm["status"], fm["my_estimate_min"], fm["first_step"]), ("doing", "40", "Open the spec"))
+        self.assertEqual((fm["status"], fm["my_estimate_min"]), ("doing", "40"))
         self.assertEqual(S.load_state()["session"]["id"], rel)
-        self.assertIn("PROJ3 → Open the spec", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
+        self.assertIn("PROJ3 → 40 min (my guess)", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
         self.assertEqual(S.focus_view()["session"]["state"], "active")
         st = S.state_json()
         self.assertEqual(st["hero"]["id"], rel)
@@ -199,6 +199,71 @@ class FlowTests(Base):
         self.assertEqual(st["hero"]["url"], "https://example.edu/submit?x=1&y=2")
         self.assertEqual(sorted(t["title"] for t in st["all"]), ["Later", "Tonight"])
         self.assertIn("Map.canvas", st["map"])
+
+    def test_one_click_start_uses_size(self):
+        p = task(self.v, "Essay", due=TODAY.isoformat(), extra="points: 8\n")
+        S.start({"id": os.path.relpath(p, self.v)})                     # no guess, no first step
+        sess = S.load_state()["session"]
+        self.assertEqual((sess["est"], sess["guessed"]), (V.MINUTES[8], False))
+        self.assertNotIn("my_estimate_min", V.read(p))
+        self.assertEqual(S.state_json()["hero"]["minutes"], V.MINUTES[8])
+
+    def test_brightspace_sync(self):
+        url = 'brightspace_url: "https://lms.example.edu/d2l/lms/dropbox/user/folder_submit_files.d2l?ou=5&db={}"\n'
+        sub = task(self.v, "Proposal", due=(TODAY - dt.timedelta(days=1)).isoformat(), extra=url.format(1))
+        done_here = task(self.v, "Lab", due=TODAY.isoformat(), status="done", extra=url.format(2) + f"done_date: {TODAY}\n")
+        task(self.v, "Personal", cls="Body")
+        listed = S.bs_tasks()
+        self.assertEqual(listed["host"], "lms.example.edu")
+        self.assertEqual(sorted(t["title"] for t in listed["tasks"]), ["Lab", "Proposal"])
+        self.assertEqual({t["kind"] for t in listed["tasks"]}, {"dropbox"})
+        S.bs_request({})
+        self.assertTrue(S.focus_view()["bs_check"])
+        out = S.bs_report({"results": [
+            {"id": os.path.relpath(sub, self.v), "submitted": True, "date": "2026-11-21T22:10:00.000Z"},
+            {"id": os.path.relpath(done_here, self.v), "submitted": False},
+            {"id": "nope.md", "submitted": True}]})
+        self.assertEqual(out["updated"], ["Proposal"])
+        fm = V.vaultlib(self.v).read_frontmatter(sub)
+        self.assertEqual((fm["status"], fm["done_date"]), ("done", "2026-11-21"))
+        st = S.state_json()
+        self.assertTrue(next(t for t in st["all"] if t["title"] == "Lab")["unsubmitted"])
+        self.assertFalse(S.focus_view()["bs_check"])                       # the request was answered
+        self.assertEqual(st["brightspace"]["updated"], ["Proposal"])
+        S.bs_report({"results": [{"id": os.path.relpath(done_here, self.v), "submitted": True}]})
+        self.assertFalse(next(t for t in S.state_json()["all"] if t["title"] == "Lab")["unsubmitted"])
+
+    def test_open_only_web_links(self):
+        os.environ["GP_NO_OPEN"] = "1"
+        S.open_url({"url": "https://lms.example.edu/d2l/x?a=1&b=2"})
+        for bad in ("file:///etc/passwd", "javascript:alert(1)", "https://x.com/ a", ""):
+            with self.assertRaises(S.Bad):
+                S.open_url({"url": bad})
+
+    def test_week_summary(self):
+        task(self.v, "Big", due=(TODAY + dt.timedelta(days=2)).isoformat(), extra="points: 13\n")
+        task(self.v, "Old", due=(TODAY - dt.timedelta(days=3)).isoformat(), extra="points: 2\n")
+        task(self.v, "Did", due=TODAY.isoformat(), status="done", extra=f"done_date: {TODAY}\npoints: 3\n")
+        w = S.state_json()["week"]
+        self.assertEqual((w["left"], w["late"], w["pts_left"], w["done"], w["pts_done"]), (2, 1, 15, 1, 3))
+        self.assertEqual(w["need_min"], V.MINUTES[13] + V.MINUTES[2])
+        self.assertTrue(w["verdict"])
+
+    def test_undo_done(self):
+        p = task(self.v, "Oops", due=TODAY.isoformat(), extra="points: 3\n")
+        rel = os.path.relpath(p, self.v)
+        S.finish(rel)
+        daily = os.path.join(self.v, "06 Daily", f"{TODAY}.md")
+        self.assertIn("[[Oops]]", V.read(daily))
+        S.undo_done({"id": rel})
+        fm = V.vaultlib(self.v).read_frontmatter(p)
+        self.assertEqual(fm["status"], "todo")
+        self.assertNotIn("done_date", fm)
+        self.assertNotIn("#done", V.read(p))
+        self.assertNotIn("[[Oops]]", V.read(daily))
+        self.assertIn("📊 Game Plan: 0 done · 0 pts", V.read(daily))
+        with self.assertRaises(S.Bad):
+            S.undo_done({"id": rel})
 
     def test_bad_ids_rejected(self):
         for bad in ("../../etc/passwd", "07 Map/Vision.md", "nope.md", None):
@@ -247,7 +312,7 @@ class FlowTests(Base):
         names = [os.path.basename(x)[:-3] if x else None for x in sent]
         # Paper ignored 3 times → it stops for today and Quiz gets the 4th; then the daily cap (4) holds
         self.assertEqual(names, ["Paper", "Paper", "Quiz", None, None])
-        S.start({"id": "01 Classes/CS 350/Assignments/Paper.md", "step": "Open it", "minutes": 10})
+        S.start({"id": "01 Classes/CS 350/Assignments/Paper.md"})
         self.assertNotIn("01 Classes/CS 350/Assignments/Paper.md", S.load_state()["nudges"]["ignored"])      # starting resets it
 
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect Brightspace · Game Plan</title>
+<style>
+:root{--bg:#1C1611;--sheet:#241C16;--line:#3B2F25;--ink:#F2EADF;--ink2:#C9BCAB;--ink3:#978877;--go:#E0B36E;--go-ink:#24170A;--ok:#86B98A;--bad:#EE6A5F;color-scheme:dark}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:17px/1.5 "Avenir Next",system-ui,sans-serif;padding:24px}
+main{max-width:620px}.k{font-weight:700;color:var(--go);margin-bottom:12px}h1{font-size:40px;line-height:1.1;margin:0 0 14px;letter-spacing:-.02em}
+p{color:var(--ink2);margin:0 0 22px}button{font:inherit;font-weight:700;height:56px;padding:0 28px;border-radius:12px;border:0;background:var(--go);color:var(--go-ink);cursor:pointer}
+button:disabled{opacity:.5}#st{margin-top:18px;color:var(--ink2)}.ok{color:var(--ok)!important}.bad{color:var(--bad)!important}:focus-visible{outline:2px solid var(--go);outline-offset:3px}
+</style></head>
+<body><main>
+<div class="k">Game Plan · Brightspace</div>
+<h1>Let Game Plan see what you've submitted.</h1>
+<p>The extension checks your assignments with the Brightspace login already in this Chrome. Submitted there means done in Game Plan.
+It only reads. It never submits or changes anything on Brightspace.</p>
+<button id="go">Connect Brightspace</button>
+<p id="st" role="status"></p>
+</main><script type="module" src="connect.js"></script></body></html>
