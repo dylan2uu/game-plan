@@ -31,7 +31,7 @@ def stat(rel):
     return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
 
 
-before = {r: stat(r) for r in ("2 Classes/CS 350/CS 350 Hub.md", "1 Map/Goal - CS Degree.md", "1 Map/Vision.md")}
+before = {r: stat(r) for r in ("2 Classes/CS 350/CS 350 Hub.md", "1 Map/Goals/Goal - CS Degree.md", "1 Map/Vision.md")}
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chrome")
     pg = b.new_page(viewport={"width": 1440, "height": 900})
