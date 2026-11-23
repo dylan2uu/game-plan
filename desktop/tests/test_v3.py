@@ -147,7 +147,7 @@ class ModelTests(Base):
         ids = {n["id"] for n in c["nodes"]}
         self.assertTrue(all(e["fromNode"] in ids and e["toNode"] in ids for e in c["edges"]))
         groups = [n for n in c["nodes"] if n["type"] == "group"]
-        self.assertTrue(any(g["label"].startswith("Software Engineer · level") for g in groups))
+        self.assertTrue(any(g["label"].startswith("Software Engineer · Walk-on · level 1") for g in groups))
         boxes = [(n["x"], n["y"], n["x"] + n["width"], n["y"] + n["height"]) for n in c["nodes"] if n["type"] != "group"]
         self.assertFalse([1 for i, a in enumerate(boxes) for b in boxes[i + 1:] if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]])
         lab = next(n for n in c["nodes"] if "[[Lab|" in n.get("text", ""))
@@ -262,13 +262,44 @@ class FlowTests(Base):
         with self.assertRaises(S.Bad):
             S.undo_done({"id": rel})
 
+    def test_sizing_follows_minutes_and_history(self):
+        task(self.v, "Old HW", due=TODAY.isoformat(), status="done", extra=f"points: 5\ndone_date: {TODAY}\nactual_min: 70\n")
+        form = task(self.v, "Course Feedback", due=TODAY.isoformat(), extra="points: 5\n")
+        mine = task(self.v, "My call", due=TODAY.isoformat(), extra="points: 8\nsized: you\n")
+        self.answer = {"sizes": [{"n": 1, "minutes": 8}, {"n": 2, "minutes": 600}]}       # n=2 doesn't exist: only 1 task asked
+        self.assertEqual(S.size_open(), ["Course Feedback"])
+        self.assertIn("Old HW | CS 350 | 70", self.calls[-1])                         # calibrated on real times
+        self.assertNotIn("My call", self.calls[-1])                                     # your own size is never re-asked
+        fm = V.vaultlib(self.v).read_frontmatter(form)
+        self.assertEqual((fm["points"], fm["est_min"], fm["sized"]), ("1", "8", "claude"))
+        self.assertEqual(V.vaultlib(self.v).read_frontmatter(mine)["points"], "8")
+        self.assertEqual(S.size_open(), [])                                             # asked once per task
+        S.resize({"id": os.path.relpath(form, self.v), "points": 3})
+        fm = V.vaultlib(self.v).read_frontmatter(form)
+        self.assertEqual((fm["points"], fm["sized"], fm.get("est_min")), ("3", "you", None))
+        with self.assertRaises(S.Bad):
+            S.resize({"id": os.path.relpath(form, self.v), "points": 4})
+        self.assertEqual([V.points_for(m) for m in (14, 15, 59, 60, 239, 240)], [1, 2, 3, 5, 8, 13])
+
+    def test_live_version_and_week_list(self):
+        v1 = S.version()
+        p = task(self.v, "Essay", due=TODAY.isoformat(), extra="points: 5\n")
+        v2 = S.version()
+        self.assertNotEqual(v1, v2)
+        S.finish(os.path.relpath(p, self.v))
+        self.assertNotEqual(S.version(), v2)
+        w = S.state_json()["week_built"]
+        self.assertEqual((w["count"], w["pts"]), (1, 5))
+        self.assertEqual(w["groups"][0]["goal"], "Software Engineer")                  # CS 350 → CS Degree → Software Engineer
+        self.assertEqual(w["groups"][0]["items"][0]["title"], "Essay")
+
     def test_bad_ids_rejected(self):
         for bad in ("../../etc/passwd", "07 Map/Vision.md", "nope.md", None):
             with self.assertRaises(S.Bad):
                 S.finish(bad)
 
     def test_type_box_task_idea_done(self):
-        self.answer = {"kind": "task", "title": "Email the professor about the quiz", "home": "CS 350", "points": 2,
+        self.answer = {"kind": "task", "title": "Email the professor about the quiz", "home": "CS 350", "minutes": 20,
                        "due": (TODAY + dt.timedelta(days=1)).isoformat(), "first_step": "Open Outlook"}
         out = S.file_typed({"text": "need to email the prof about the quiz tmrw"})
         self.assertEqual(out["task"]["cls"], "CS 350")
@@ -310,7 +341,7 @@ class FlowTests(Base):
         st = S.state_json()["progress"]
         self.assertEqual((st["today"], sorted(st["built"])), (21, ["Lab", "Project"]))
         goal = V.read(os.path.join(self.v, "07 Map/Goal - CS Degree.md"))
-        self.assertIn("> [!gp-level] Level 2 · 1 / 30 to level 3", goal)
+        self.assertIn("> [!gp-level] Bench · level 2 · 1 / 30 to Rotation", goal)
         self.assertIn("> [!gp-done]- Built lately · 2 total", goal)
 
     def test_nudges(self):

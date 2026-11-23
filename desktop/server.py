@@ -129,7 +129,7 @@ def unique_path(folder, base):
 
 
 def create_task(title, cls, due=None, points=3, first_step="", status="todo", done_date=None, actual=None,
-                source="gameplan", created=None, url=None):
+                source="gameplan", created=None, url=None, est=None):
     """A new task note, filed by class (or 00 Inbox/Assignments) and linked up to its class or area."""
     vault = CFG["vault"]
     vl = V.vaultlib(vault)
@@ -140,7 +140,7 @@ def create_task(title, cls, due=None, points=3, first_step="", status="todo", do
     fm = {"type": "assignment", "class": cls, "due": due.isoformat() if due else "", "status": status,
           "points": V.snap_points(points), "first_step": first_step, "source": source,
           "date": (created or dt.date.today()).isoformat(), "done_date": done_date.isoformat() if done_date else None,
-          "actual_min": actual, "brightspace_url": url}
+          "actual_min": actual, "brightspace_url": url, "est_min": est, "sized": "claude" if est else None}
     head = "".join(f"{k}: {V.yaml_value(v)}\n" if v != "" else f"{k}:\n" for k, v in fm.items() if v is not None)
     parent = V.home(nd, cls)
     body = f"# {title}\n" + (f"Part of [[{parent}]]\n" if parent else "") + \
@@ -178,12 +178,13 @@ def state_json():
     unsub = set(st.get("unsubmitted", []))
     daily = os.path.join(vault, "06 Daily", f"{today.isoformat()}.md")
     return {
-        "now": t0.isoformat(), "today": today.isoformat(), "hero": hero,
+        "version": version(), "now": t0.isoformat(), "today": today.isoformat(), "hero": hero,
+        "week_built": V.week_built(ts, nd, today),
         "next": [view(t, why, nd) for t, why in ranked if not hero or t["id"] != hero["id"]][:5],
         "week": week, "progress": V.progress(ts, today), "identities": V.identities(ts, nd),
         "map": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.CANVAS),
         "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
-        "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], status=t["status"], url=t["url"],
+        "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], est=V.est_min(t), status=t["status"], url=t["url"],
                      due=t["due"].isoformat() if t["due"] else None, done=t["done_date"].isoformat() if t["done_date"] else None,
                      bs=bool(bs_item(t["url"])), unsubmitted=t["id"] in unsub,
                      note="obsidian://open?path=" + urllib.parse.quote(t["path"])) for t in ts],
@@ -298,6 +299,76 @@ def open_url(body):
         subprocess.run(["open", "-a", chrome, url] if os.path.isdir(chrome) else ["open", url], check=False)
 
 
+# ---------- sizing: points and minutes that fit the task ----------
+def size_open(limit=15):
+    """Ask Claude once per task: how many minutes of focused work will this really take Dylan?
+    Calibrated with his actual times; points then follow from the minutes. 'sized: you' is never touched."""
+    vault = CFG["vault"]
+    ts = V.tasks(vault)
+    todo = [t for t in ts if t["status"] != "done" and t["sized_by"] not in ("claude", "you")][:limit]
+    if not todo:
+        return []
+    timed = sorted((t for t in ts if t["status"] == "done" and t["actual"]), key=lambda t: t["done_date"] or dt.date.min)[-25:]
+    kind = lambda t: (bs_item(t["url"]) or {}).get("kind", "task")
+    res = ai("Estimate how long each of Dylan's open tasks will really take him, in minutes of focused work. Be realistic for a "
+             "CS junior: forms and surveys take minutes, a quiz or discussion post under an hour, a problem set an hour or two, a "
+             "graded paper or project milestone several hours. Calibrate on his history.\n"
+             "History (task | class | minutes he actually took):\n" + "\n".join(f"{t['title']} | {t['cls']} | {t['actual']}" for t in timed) +
+             "\n\nOpen tasks (n | title | class | kind):\n" + "\n".join(f"{i} | {t['title']} | {t['cls']} | {kind(t)}" for i, t in enumerate(todo, 1)) +
+             '\nReturn {"sizes": [{"n": number, "minutes": number}]}')
+    by = {str(i): t for i, t in enumerate(todo, 1)}                     # short keys: long file names get mangled
+    sized = []
+    with LOCK:
+        for r in res.get("sizes") or []:
+            t = by.get(str((r or {}).get("n")))
+            try:
+                m = max(5, min(600, int(float(r.get("minutes")))))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if t:
+                V.set_fields(t["path"], points=V.points_for(m), est_min=m, sized="claude")
+                sized.append(t["title"])
+        if sized:
+            V.ensure_vault(vault)
+    return sized
+
+
+def resize(body):
+    """Your call beats the estimate: set a task's points by hand (the minutes follow)."""
+    try:
+        p = int(body.get("points"))
+    except (TypeError, ValueError):
+        raise Bad("Pick a size: 1, 2, 3, 5, 8 or 13.")
+    if p not in V.POINTS:
+        raise Bad("Pick a size: 1, 2, 3, 5, 8 or 13.")
+    with LOCK:
+        t = find_task(V.tasks(CFG["vault"]), body.get("id"))
+        V.set_fields(t["path"], points=p, est_min=None, sized="you")
+        V.ensure_vault(CFG["vault"])
+
+
+# ---------- live updates: a cheap fingerprint of everything the page shows ----------
+WATCH = ("00 Inbox", "01 Classes", "03 Projects", "06 Daily", "07 Map")
+
+
+def version():
+    newest, count = 0, 0
+    for folder in WATCH:
+        for root, _, files in os.walk(os.path.join(CFG["vault"], folder)):
+            for f in files:
+                if f.endswith((".md", ".canvas")):
+                    try:
+                        newest = max(newest, os.stat(os.path.join(root, f)).st_mtime_ns)
+                    except OSError:
+                        continue
+                    count += 1
+    try:
+        state_m = os.stat(CFG["state"]).st_mtime_ns
+    except OSError:
+        state_m = 0
+    return f"{newest}.{count}.{state_m}"
+
+
 # ---------- actions ----------
 def start(body):
     """One click. A minutes guess is optional; without one the task's size sets the clock."""
@@ -330,7 +401,7 @@ def finish(rel):
         st = load_state()
         sess = st.get("session") if (st.get("session") or {}).get("id") == t["id"] else None
         actual = max(1, round((t0 - parse_time(sess["started_at"])).total_seconds() / 60)) if sess else t["actual"]
-        guess = sess["est"] if sess and sess.get("guessed") else t["my_est"]
+        guess = sess["est"] if sess else V.est_min(t)
         before = V.progress(ts, t0.date())["today"]
         levels_before = {g["name"]: g["level"] for g in V.identities(ts, V.nodes(vault))}
         V.set_fields(t["path"], status="done", done_date=t0.date().isoformat(), actual_min=actual, started_at=None)
@@ -397,7 +468,7 @@ def file_typed(body):
              "kind: \"task\" = something to do. \"done\" = he says he already did it (past tense); if it is one of the open "
              "tasks, set match_id. \"idea\" = a thought, plan, question or opinion to think through.\n"
              'Return {"kind": "task|done|idea", "title": "short, his words, max 70 chars", "home": "...", '
-             '"points": 1|2|3|5|8|13 (1 <15 min, 2 15-30, 3 30-60, 5 1-2 h, 8 2-4 h, 13 4 h+), "due": "YYYY-MM-DD or empty", '
+             '"minutes": realistic minutes of focused work for him, "due": "YYYY-MM-DD or empty", '
              '"first_step": "a 2-minute physical first action, max 100 chars (tasks only)", "match_id": "id or empty", '
              '"questions": ["ideas only: 2-3 sharp questions, or one counter-argument. Never a finished answer."]}')
     kind = res.get("kind") if res.get("kind") in ("task", "done", "idea") else "task"
@@ -406,9 +477,14 @@ def file_typed(body):
     cls = cls if cls in homes else "Unsorted"
     due = V.date_or_none(res.get("due"))
     step = re.sub(r"\s+", " ", str(res.get("first_step") or "")).strip()[:120]
+    try:
+        mins = max(5, min(600, int(float(res.get("minutes") or 0)))) or None
+    except (TypeError, ValueError):
+        mins = None
+    pts = V.points_for(mins) if mins else V.snap_points(res.get("points"))
     if kind == "done":
         match = next((t for t in open_ts if t["id"] == res.get("match_id")), None)
-        rel = match["id"] if match else os.path.relpath(create_task(title, cls, due, res.get("points"), step), vault)
+        rel = match["id"] if match else os.path.relpath(create_task(title, cls, due, pts, step, est=mins), vault)
         return {"kind": "done", "done": finish(rel)}
     if kind == "idea":
         qs = [re.sub(r"\s+", " ", str(q)).strip()[:300] for q in (res.get("questions") or []) if str(q).strip()][:3]
@@ -421,9 +497,9 @@ def file_typed(body):
                     + "".join(f"- **Claude:** {q}\n" for q in qs))
         return {"kind": "idea", "idea": {"id": os.path.relpath(path, vault), "title": title, "cls": cls, "questions": qs}}
     with LOCK:
-        create_task(title, cls, due, res.get("points"), step)
+        create_task(title, cls, due, pts, step, est=mins)
         V.ensure_vault(vault)
-    return {"kind": "task", "task": {"title": title, "cls": cls, "points": V.snap_points(res.get("points")),
+    return {"kind": "task", "task": {"title": title, "cls": cls, "points": pts, "minutes": mins,
                                      "due": due.isoformat() if due else None}}
 
 
@@ -557,16 +633,27 @@ def upkeep(t0, force=False):
 
 
 def ticker():
-    last_full = 0.0
+    seen, last_nudge, last_size = None, 0.0, 0.0
     while True:
         try:
-            t0, full = now(), time.time() - last_full > 600
-            upkeep(t0, force=full)
-            last_full = time.time() if full else last_full
-            nudge(t0)
+            t0, v = now(), version()
+            if v != seen:                              # something changed (Obsidian, the sync, the app): redraw
+                upkeep(t0, force=True)
+                seen = version()
+            else:
+                upkeep(t0)                             # still finishes yesterday's daily note at midnight
+            if time.time() - last_nudge > 60:
+                nudge(t0)
+                last_nudge = time.time()
+            if time.time() - last_size > 600 and os.environ.get("GP_NO_SIZE") != "1":
+                last_size = time.time()
+                done = size_open()
+                if done:
+                    print("sized:", ", ".join(done), flush=True)
+                    seen = None
         except Exception as e:  # never take the server down over upkeep
             print("ticker:", type(e).__name__, e, flush=True)
-        time.sleep(60)
+        time.sleep(3)
 
 
 # ---------- HTTP ----------
@@ -584,6 +671,7 @@ ROUTES = {
     "/api/stop": lambda b: (focus_act({"action": "stop"}), {})[1],
     "/api/stuck": stuck,
     "/api/undo": lambda b: (undo_done(b), {})[1],
+    "/api/size": lambda b: (resize(b), {})[1],
     "/api/type": file_typed,
     "/api/spitball": spitball,
     "/api/checkin": lambda b: (checkin(b), {})[1],
@@ -637,6 +725,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, focus_view())
             if path == "/api/brightspace/tasks":
                 return self._send(200, bs_tasks())
+            if path == "/api/version":
+                return self._send(200, {"v": version()})
         except Exception as e:
             print("GET", path, type(e).__name__, e, flush=True)
             return self._send(500, {"error": "Something broke reading the vault. Check the server log."})

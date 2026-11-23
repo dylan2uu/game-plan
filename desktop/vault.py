@@ -12,7 +12,8 @@ import re
 import sys
 
 POINTS = (1, 2, 3, 5, 8, 13)
-MINUTES = {1: 10, 2: 25, 3: 45, 5: 90, 8: 180, 13: 300}     # rough work time per size
+MINUTES = {1: 10, 2: 25, 3: 45, 5: 90, 8: 180, 13: 300}     # typical work time per size (when nothing better is known)
+RANKS = ["Walk-on", "Bench", "Rotation", "Starter", "Captain", "All-Star", "MVP", "Champion", "Hall of Famer", "Legend"]
 DAY_GOAL = 10
 STAT = "📊 "
 
@@ -112,6 +113,24 @@ def level(pts):
     return lvl, left, need
 
 
+def threshold(lvl):
+    """Total points it takes to reach a level."""
+    total, need = 0, 20
+    for _ in range(lvl - 1):
+        total, need = total + need, need + 10
+    return total
+
+
+def rank_name(lvl):
+    return RANKS[min(lvl, len(RANKS)) - 1]
+
+
+def points_for(minutes):
+    """Points always follow the time a task takes: <15 min 1, <30 2, <60 3, <2 h 5, <4 h 8, longer 13."""
+    m = max(1, int(minutes))
+    return 1 if m < 15 else 2 if m < 30 else 3 if m < 60 else 5 if m < 120 else 8 if m < 240 else 13
+
+
 def bar(into, need, n=10):
     k = max(0, min(n, round(n * into / need))) if need else n
     return "▰" * k + "▱" * (n - k)
@@ -138,7 +157,9 @@ def load_task(vault, path, fm, text):
         "id": os.path.relpath(path, vault), "path": path, "title": title,
         "cls": fm.get("class") or "Unsorted", "status": status,
         "due": date_or_none(fm.get("due")), "points": points or guess_points(title),
-        "sized": bool(points), "my_est": int(fm["my_estimate_min"]) if str(fm.get("my_estimate_min", "")).isdigit() else None,
+        "sized": bool(points), "sized_by": fm.get("sized", ""),
+        "est": int(fm["est_min"]) if str(fm.get("est_min", "")).isdigit() else None,
+        "my_est": int(fm["my_estimate_min"]) if str(fm.get("my_estimate_min", "")).isdigit() else None,
         "actual": int(fm["actual_min"]) if str(fm.get("actual_min", "")).isdigit() else None,
         "done_date": date_or_none(fm.get("done_date") or fm.get("done")) if status == "done" else None,
         "first_step": fm.get("first_step", ""), "source": fm.get("source", ""),
@@ -157,7 +178,12 @@ def tasks(vault):
 
 
 def est_min(t):
-    return t["my_est"] or MINUTES[t["points"]]
+    """Best guess at the work time: your own guess, else the sized estimate, else the typical time for its points."""
+    return t["my_est"] or t.get("est") or MINUTES[t["points"]]
+
+
+def minutes_spent(t):
+    return t["actual"] or est_min(t)
 
 
 # ---------- the map ----------
@@ -302,9 +328,10 @@ def node_block(n, nd, open_ts, done_ts, today, limit=12):
     monday = today - dt.timedelta(days=today.weekday())
     week = sum(t["points"] for t in done_ts if t["done_date"] and t["done_date"] >= monday)
     out = [B_START,
-           f"> [!gp-level] Level {lvl} · {into} / {need} to level {lvl + 1}",
+           f"> [!gp-level] {rank_name(lvl)} · level {lvl} · {into} / {need} to {rank_name(lvl + 1)}",
            f'> <progress value="{into}" max="{need}"></progress>',
-           f"> {'+' + str(week) + ' pts this week' if week else 'Nothing finished here this week yet'} · {len(open_ts)} open", ""]
+           f"> about {round(sum(minutes_spent(t) for t in done_ts) / 60)} hours of real work · "
+           f"{'+' + str(week) + ' pts this week' if week else 'nothing finished here this week yet'} · {len(open_ts)} open", ""]
     if kids:
         out += ["**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]]" for c in kids), ""]
     ordered = sorted(open_ts, key=lambda t: (t["due"] or dt.date.max, t["title"].lower()))
@@ -452,7 +479,7 @@ def map_canvas(vault, ts, nd, today, per_column=6):
         x0, y0 = min(m["x"] for m in members) - 24, min(m["y"] for m in members) - 24
         x1, y1 = max(m["x"] + m["width"] for m in members) + 24, max(m["y"] + m["height"] for m in members) + 24
         lvl = level(stats[b][1])[0]
-        groups.append({"id": _id("g-", b), "type": "group", "label": f"{nd[b]['title']} · level {lvl}", "x": x0, "y": y0,
+        groups.append({"id": _id("g-", b), "type": "group", "label": f"{nd[b]['title']} · {rank_name(lvl)} · level {lvl}", "x": x0, "y": y0,
                        "width": x1 - x0, "height": y1 - y0, "color": members[0].get("color") or "#A99AD9"})
     nodes = groups + nodes                       # groups first so they sit behind the cards
     out = json.dumps({"nodes": nodes, "edges": edges}, indent=1)
@@ -647,17 +674,44 @@ def progress(ts, today, days=14):
 
 
 def identities(ts, nd):
-    """Each goal is someone you're becoming. Finished points are proof, and proof levels them up."""
-    pts = {n: 0 for n in nd if nd[n]["kind"] in ("goal", "vision")}
+    """Each goal is someone you're becoming. Finished points are proof, and proof levels them up.
+    A level also stands for real hours: every finished task adds the time it took (or its estimate)."""
+    acc = {n: {"pts": 0, "min": 0, "done": []} for n in nd if nd[n]["kind"] in ("goal", "vision")}
     for t in ts:
         if t["status"] == "done":
             for n in chain(nd, home(nd, t["cls"])):
-                if n in pts:
-                    pts[n] += t["points"]
+                if n in acc:
+                    acc[n]["pts"] += t["points"]
+                    acc[n]["min"] += minutes_spent(t)
+                    acc[n]["done"].append(t)
     out = []
-    for n, p in pts.items():
-        lvl, into, need = level(p)
-        out.append({"name": n, "title": nd[n]["title"], "kind": nd[n]["kind"], "pts": p, "level": lvl, "into": into, "need": need})
+    for n, a in acc.items():
+        lvl, into, need = level(a["pts"])
+        dated = sorted((t for t in a["done"] if t["done_date"]), key=lambda t: t["done_date"])
+        out.append({"name": n, "title": nd[n]["title"], "kind": nd[n]["kind"], "pts": a["pts"], "level": lvl, "into": into,
+                    "need": need, "rank": rank_name(lvl), "next_rank": rank_name(lvl + 1), "hours": round(a["min"] / 60),
+                    "since": dated[0]["done_date"].isoformat() if dated else None, "count": len(a["done"]),
+                    "recent": [{"title": t["title"], "cls": t["cls"], "points": t["points"], "date": t["done_date"].isoformat()}
+                               for t in reversed(dated[-6:])],
+                    "feeds": sorted(nd[c]["title"] for c in nd if nd[c]["parent"] == n)})
     return sorted(out, key=lambda g: (g["kind"] != "vision", -g["pts"], g["title"]))
+
+
+def week_built(ts, nd, today):
+    """Mon-today, grouped by the big goal each thing fed: the list you can send to someone."""
+    monday = today - dt.timedelta(days=today.weekday())
+    done = [t for t in ts if t["status"] == "done" and t["done_date"] and monday <= t["done_date"] <= today]
+    tops = {}
+    for t in sorted(done, key=lambda t: (t["done_date"], t["title"])):
+        up = chain(nd, home(nd, t["cls"]))
+        top = next((n for n in reversed(up) if nd[n]["kind"] == "goal"), None)
+        tops.setdefault(nd[top]["title"] if top else "Other", []).append(t)
+    before = {g["title"]: level(g["pts"] - sum(t["points"] for t in tops.get(g["title"], [])))[0] for g in identities(ts, nd)}
+    groups = [{"goal": g, "pts": sum(t["points"] for t in items), "items": [{"title": t["title"], "cls": t["cls"], "points": t["points"]} for t in items]}
+              for g, items in sorted(tops.items(), key=lambda kv: -sum(t["points"] for t in kv[1]))]
+    levels = [{"title": g["title"], "from": before.get(g["title"], g["level"]), "to": g["level"]} for g in identities(ts, nd)
+              if g["kind"] == "goal" and g["title"] in tops]
+    return {"from": monday.isoformat(), "to": today.isoformat(), "count": len(done), "pts": sum(t["points"] for t in done),
+            "hours": round(sum(minutes_spent(t) for t in done) / 60, 1), "groups": groups, "levels": levels}
 
 

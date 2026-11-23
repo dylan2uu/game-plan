@@ -56,8 +56,8 @@ with sync_playwright() as p:
         pg.wait_for_timeout(300)
     expect(pg.locator(".hero .title")).to_contain_text(title, ignore_case=True)
 
-    # 2. an optional guess, then Start (one click)
-    pg.click('.chip-btn[data-min="15"]')
+    # 2. Start is one click (it shows the estimate)
+    expect(pg.locator("#start .go-est")).to_contain_text("~")
     pg.click("#start")
     expect(pg.locator(".kicker")).to_have_text("On the clock")
     pg.wait_for_timeout(1500)
@@ -71,7 +71,7 @@ with sync_playwright() as p:
     walk = pg.locator("#burst .walk").inner_text()
     print("burst:", " ".join(walk.split()))
     assert "CS 350" in walk and "CS Degree" in walk and "Software Engineer" in walk, walk
-    expect(pg.locator("#burst .guess-line")).to_contain_text("You guessed 15 min")
+    expect(pg.locator("#burst .guess-line")).to_contain_text("Estimated")
     pg.click("#burst")
 
     # 3b. All tasks: Submit links, Done straight from the list, Do now sends a task to the main screen
@@ -100,7 +100,7 @@ with sync_playwright() as p:
     print("list: done", repr(listed_done), "| started", repr(picked))
     assert pg.locator("#next .row").count() > 0, "Up next is empty"
     pg.click("#how-points")
-    expect(pg.locator("#sheet h2")).to_have_text("How points work")
+    expect(pg.locator("#sheet h2")).to_have_text("How points and levels work")
     pg.screenshot(path=os.path.join(a.shots, "3c-points.png"))
     pg.keyboard.press("Escape")
 
@@ -116,15 +116,30 @@ with sync_playwright() as p:
     pg.screenshot(path=os.path.join(a.shots, "4-spitball.png"))
     pg.keyboard.press("Escape")
 
-    # 5. the main screen explains itself: today's count, levels, how points work
+    # 5. the main screen explains itself: today's count, levels (click one), the week's build list
     pg.click("#tab-now")
     expect(pg.locator(".levels .lv").first).to_be_visible()
+    pg.locator(".lv-btn").first.click()
+    expect(pg.locator(".ladder tr.here")).to_be_visible()
+    pg.screenshot(path=os.path.join(a.shots, "5-level.png"))
+    pg.keyboard.press("Escape")
+    pg.click("#share-week")
+    expect(pg.locator("#week-text")).to_contain_text("This week I built")
+    pg.screenshot(path=os.path.join(a.shots, "6-week.png"))
+    pg.keyboard.press("Escape")
+    # 6. live: a change made outside the app (like in Obsidian) shows up without a reload
+    rid = pg.locator("#next .row").first.get_attribute("data-id")
+    note = os.path.join(a.vault, rid)
+    text = open(note, encoding="utf-8").read()
+    open(note, "w", encoding="utf-8").write(re.sub(r"(?m)^status: \w+", "status: done", text, count=1).replace("---\n", f"---\ndone_date: {today}\n", 1))
+    expect(pg.locator(f'#next .row[data-id="{rid}"]')).to_have_count(0, timeout=8_000)
+    print("live: edited on disk →", os.path.basename(rid), "left Up next without a reload")
     b.close()
 
 # 6. the files
 note = [f for f in glob.glob(os.path.join(a.vault, "01 Classes/CS 350/Assignments/*.md")) if title.lower() in read(f).lower()][0]
 text = read(note)
-for want in ("status: done", f"done_date: {today}", "my_estimate_min: 15", "actual_min:", "Part of [[CS 350 Hub]]", "#done"):
+for want in ("status: done", f"done_date: {today}", "actual_min:", "Part of [[CS 350 Hub]]", "#done", "est_min:", "sized: claude"):
     assert want in text, f"task note missing {want!r}"
 stem = os.path.splitext(os.path.basename(note))[0]
 daily = read(f"06 Daily/{today}.md")

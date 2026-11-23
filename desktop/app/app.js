@@ -10,7 +10,7 @@ let view = "now";                 // always opens on the one thing; "all" is one
 let filter = { cls: null, day: null };
 let calShift = 0;                 // calendar offset in 4-week steps
 let highlight = null;             // task id to flash in the list
-let guess = null;                 // optional minutes guess before Start
+let version = null;               // server fingerprint: changes when anything the page shows changes
 let stuckLevel = -1;
 
 async function api(path, body) {
@@ -23,6 +23,10 @@ async function api(path, body) {
   return data;
 }
 async function refresh() { try { render(await api("/api/state")); } catch (e) { say(e.message, true); } }
+setInterval(async () => {                    // live: re-render within 2 s of any change (Obsidian, Brightspace, another window)
+  if (document.hidden) return;
+  try { const { v } = await api("/api/version"); if (version && v !== version) refresh(); } catch {}
+}, 2000);
 async function act(path, body) { try { render((await api(path, body)).state); } catch (e) { say(e.message, true); } }
 
 /* ---------- small helpers ---------- */
@@ -32,6 +36,7 @@ const addDays = (isoDay, n) => { const d = day(isoDay); d.setDate(d.getDate() + 
 const daysBetween = (a, b) => Math.round((day(b) - day(a)) / 864e5);
 const shortDay = (isoDay) => day(isoDay).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const pts = (n) => `${n} pt${n === 1 ? "" : "s"}`;
+const about = (m) => (m ? `~${m >= 60 ? (m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m / 60}h`) : `${m}m`}` : "");
 const hm = (m) => { m = Math.round(m || 0); const h = Math.floor(m / 60), r = m % 60; return h >= 10 ? `${Math.round(m / 60)}h` : h ? (r ? `${h}h ${r}m` : `${h}h`) : `${r}m`; };
 const firstSentence = (s) => (String(s || "").match(/^[^.!?]*[.!?]?["”']?/) || [""])[0].trim();
 function dueWords(t) {
@@ -65,6 +70,9 @@ document.addEventListener("click", async (e) => {
 /* ---------- render ---------- */
 function render(state) {
   S = state;
+  version = state.version;
+  const keep = ["#next", "#list"].map((sel) => [sel, $(sel) ? $(sel).scrollTop : 0]);
+  requestAnimationFrame(() => keep.forEach(([sel, top]) => { if ($(sel)) $(sel).scrollTop = top; }));
   const names = [...new Set(S.all.map((t) => t.cls))].sort();
   if (names.join("|") !== Object.keys(colors).join("|")) colors = Object.fromEntries(names.map((n, i) => [n, PALETTE[i % PALETTE.length]]));
   renderBar();
@@ -113,7 +121,6 @@ function renderHero() {
   }
   box.dataset.key = key;
   stuckLevel = -1;
-  guess = null;
   const size = h.title.length > 60 ? "title longer" : h.title.length > 28 ? "title long" : "title";
   const t = S.all.find((x) => x.id === h.id) || h;
   const open = h.url ? `<a class="btn bs" href="${esc(h.url)}" data-ext>${h.bs ? "Open in Brightspace" : "Open link"}</a>` : "";
@@ -121,7 +128,7 @@ function renderHero() {
   if (running) {
     box.innerHTML = `<p class="kicker">On the clock</p>${top}
       <div class="clock"><span class="digits" id="digits">0:00</span>
-        <span class="of">${h.guessed ? `you guessed ${h.minutes} min` : `about ${hm(h.minutes)} for a task this size`}</span></div>
+        <span class="of">${h.guessed ? `you guessed ${h.minutes} min` : `estimate: ${hm(h.minutes)}`}</span></div>
       <div class="grow"></div>
       <div class="actions">
         <button class="go" id="done">Done</button>${open}<button class="btn" id="stuck">Stuck</button>
@@ -136,21 +143,21 @@ function renderHero() {
     const [due, late] = [dueWords(t), bucket(t) === "Overdue"];
     box.innerHTML = `<p class="kicker">Do this now</p>${top}
       <p class="why">${esc(h.why)}</p>
-      <div class="facts"><span class="pts">${pts(h.points)}</span><span class="${late ? "late" : ""}">${esc(due[0].toUpperCase() + due.slice(1))}</span>
+      <div class="facts"><button class="pts pts-btn" id="resize" title="Wrong size? Click to change it" aria-expanded="false">${pts(h.points)}</button>
+        <span class="${late ? "late" : ""}">${esc(due[0].toUpperCase() + due.slice(1))}</span>
         ${t.unsubmitted ? `<span class="warn">Marked done here, but Brightspace shows no submission</span>` : ""}</div>
+      <div class="sizes-pick" id="sizes" role="group" aria-label="Task size" hidden>Size:
+        ${[1, 2, 3, 5, 8, 13].map((p) => `<button class="chip-btn" data-pts="${p}" aria-pressed="${p === h.points}">${p}</button>`).join("")}
+        <span class="hint">1 is under 15 min, 13 is 4 h or more</span></div>
       <div class="grow"></div>
       <div class="actions">
-        <button class="go" id="start">Start</button>${open}<button class="btn done" id="done">Done</button>
+        <button class="go" id="start">Start<span class="go-est">${about(h.est)}</span></button>${open}<button class="btn done" id="done">Done</button>
         <span class="spacer"></span><button class="quiet" id="stuck">Stuck?</button><button class="quiet" id="skip">Not today</button>
       </div>
-      <div class="guess" role="group" aria-label="Your guess, optional">Your guess (optional):
-        ${[15, 30, 60, 90].map((m) => `<button class="chip-btn" data-min="${m}" aria-pressed="false">${m}m</button>`).join("")}</div>
       <div class="stuck" id="stuck-box" hidden></div>`;
-    box.querySelectorAll(".chip-btn").forEach((c) => (c.onclick = () => {
-      guess = guess === +c.dataset.min ? null : +c.dataset.min;
-      box.querySelectorAll(".chip-btn").forEach((o) => o.setAttribute("aria-pressed", String(+o.dataset.min === guess)));
-    }));
-    $("#start").onclick = (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = "Starting…"; act("/api/start", { id: h.id, minutes: guess }); };
+    $("#resize").onclick = (e) => { const s = $("#sizes"); s.hidden = !s.hidden; e.currentTarget.setAttribute("aria-expanded", String(!s.hidden)); };
+    $("#sizes").onclick = (e) => { const b = e.target.closest("[data-pts]"); if (b) { box.dataset.key = ""; act("/api/size", { id: h.id, points: +b.dataset.pts }); } };
+    $("#start").onclick = (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = "Starting…"; act("/api/start", { id: h.id }); };
     $("#skip").onclick = () => act("/api/skip", { id: h.id });
   }
   $("#done").onclick = () => done(h.id);
@@ -174,7 +181,7 @@ function row(t, { tick: canTick = true } = {}) {
     <div>${titleLink(t)}
       <div class="m"><span><span class="dot" style="background:${colors[t.cls] || "#888"}"></span>${esc(t.cls)}</span>
         <span class="${late ? "late" : ""}">${t.status === "done" ? "done " + shortDay(t.done || t.due) : dueWords(t)}</span>
-        <span class="p">${pts(t.points)}</span>
+        <span class="p">${pts(t.points)}</span>${t.status === "done" ? "" : `<span>${about(t.est)}</span>`}
         ${t.unsubmitted ? `<span class="warn">not submitted on Brightspace?</span>` : ""}</div></div>
     ${t.status === "done" ? "<span></span>" : `<button class="mini" data-act="start">Start</button>`}</div>`;
 }
@@ -211,12 +218,19 @@ function renderProgress() {
     <div class="meter" aria-hidden="true">${Array.from({ length: p.goal }, (_, i) => `<i class="${i < p.today ? "on" : ""}"></i>`).join("")}</div>
     <p class="built">${p.built.length ? "Built: " + p.built.map(esc).join(" · ") : `Nothing finished yet. ${p.goal} points makes it a producer day.`}</p>
     <h3 class="sub-h">Who you're becoming</h3>
-    <div class="levels">${ids.map((g) => `<div class="lv" title="${g.pts} pts of proof">
+    <div class="levels">${ids.map((g) => `<button class="lv lv-btn" data-goal="${esc(g.name)}" title="${esc(g.rank)}: ${g.pts} pts, about ${g.hours} h of real work">
       <span class="lv-name">${esc(g.title)}</span><span class="lv-num">Lv ${g.level}</span>
-      <span class="lv-bar"><i style="width:${Math.round((g.into / g.need) * 100)}%"></i></span><span class="lv-left">${g.need - g.into} to ${g.level + 1}</span></div>`).join("")}</div>
+      <span class="lv-bar"><i style="width:${Math.round((g.into / g.need) * 100)}%"></i></span><span class="lv-left">${g.need - g.into} to ${g.level + 1}</span></button>`).join("")}</div>
+    <p class="week-share">This week: <b>${S.week_built.count}</b> built, <b>${S.week_built.pts}</b> pts, about <b>${S.week_built.hours}</b> h
+      <button class="link-btn" id="share-week">Share this week</button></p>
     <div class="streak"><span>Not-zero streak: <b>${p.streak}</b> day${p.streak === 1 ? "" : "s"}</span><span class="dots" aria-label="Days with points this week">${dots}</span></div>`;
 }
 $("#how-points").onclick = () => pointsSheet();
+$("#progress").onclick = (e) => {
+  const lv = e.target.closest(".lv-btn");
+  if (lv) return levelSheet(S.identities.find((g) => g.name === lv.dataset.goal));
+  if (e.target.closest("#share-week")) weekSheet();
+};
 
 /* ---------- All tasks: calendar + what you have + the list ---------- */
 const openTasks = () => S.all.filter((t) => t.status !== "done");
@@ -354,7 +368,7 @@ function burst(d, id) {
   const steps = [`<span class="pt" style="animation-delay:.85s">+${pts(d.points)}</span>`]
     .concat(d.chain.flatMap((c, i) => [`<span class="arrow" style="animation-delay:${(1.0 + i * 0.2).toFixed(2)}s">→</span>`,
                                        `<span style="animation-delay:${(1.05 + i * 0.2).toFixed(2)}s">${esc(c)}</span>`]));
-  const g = d.est && d.actual ? `You guessed ${d.est} min, took ${d.actual}.` : d.actual ? `Took ${d.actual} min.` : "";
+  const g = d.est && d.actual ? `Estimated ${hm(d.est)}, took ${hm(d.actual)}.` : d.actual ? `Took ${hm(d.actual)}.` : "";
   const ups = (d.levels || []).filter((l) => l.up), goals = (d.levels || []).filter((l) => l.kind === "goal").slice(0, 2);
   b.innerHTML = `
     <svg class="hoop" viewBox="0 0 120 120" aria-hidden="true">
@@ -369,7 +383,7 @@ function burst(d, id) {
       <div class="walk">${steps.join("")}</div>
       <div class="burst-levels">${goals.map((l) => `<div class="lv"><span class="lv-name">${esc(l.title)}</span><span class="lv-num">Lv ${l.level}</span>
         <span class="lv-bar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span><span class="lv-left">${l.need - l.into} to ${l.level + 1}</span></div>`).join("")}</div>
-      ${ups.length ? `<div class="reward-line">Level up: ${ups.map((l) => `${esc(l.title)} is level ${l.level}`).join(" · ")}</div>` : ""}
+      ${ups.length ? `<div class="reward-line">Level up: ${ups.map((l) => `${esc(l.title)} is now ${/^[AEIOU]/.test(l.rank) ? "an" : "a"} ${esc(l.rank)} (level ${l.level})`).join(" · ")}</div>` : ""}
       ${d.producer_day ? `<div class="reward-line">Producer day. ${d.built_today} things built, the day's work is done. Everything after this is a bonus.</div>` : ""}
       ${g ? `<div class="guess-line">${g}</div>` : ""}
       ${id ? `<button class="quiet undo" id="undo">Undo, I didn't finish this</button>` : ""}
@@ -441,25 +455,83 @@ function choices(el) {
   return () => (el.querySelector('.choice[aria-pressed="true"]') || {}).dataset?.v;
 }
 
+function ladder(g) {
+  const thr = (l) => 20 * (l - 1) + 5 * (l - 1) * (l - 2);          // points to reach level l: 0, 20, 50, 90, 140…
+  const v = S.identities.find((x) => x.kind === "vision"), mpp = v && v.pts ? (v.hours * 60) / v.pts : 15;   // your minutes per point
+  const rows = [];
+  for (let l = 1; l <= Math.max(10, (g ? g.level : 0) + 2); l++) {
+    const here = g && g.level === l, past = g && g.level > l;
+    rows.push(`<tr class="${here ? "here" : past ? "past" : ""}"><td>${l}</td><td>${esc(RANKS[Math.min(l, RANKS.length) - 1])}</td>
+      <td class="num">${thr(l)} pts</td><td class="num">~${Math.round((thr(l) * mpp) / 60)} h</td><td>${here ? "you are here" : past ? "✓" : ""}</td></tr>`);
+  }
+  return `<table class="ladder"><thead><tr><th>Level</th><th>Rank</th><th>Reached at</th><th>About this much real work</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+const RANKS = ["Walk-on", "Bench", "Rotation", "Starter", "Captain", "All-Star", "MVP", "Champion", "Hall of Famer", "Legend"];
+
 function pointsSheet() {
-  sheet(`<h2 id="sheet-h">How points work</h2>
-    <p class="sub">Points are proof. Every finished task is evidence for the person you're becoming, and that proof levels you up.</p>
+  const goals = S.identities.filter((g) => g.kind === "goal");
+  sheet(`<h2 id="sheet-h">How points and levels work</h2>
+    <p class="sub">Points are proof. Every finished task is evidence for the person you're becoming. Levels are that proof, added up.</p>
+    <h3 class="sheet-h3">1. Points follow the time a task really takes</h3>
     <table class="sizes"><tbody>
-      <tr><td>1</td><td>Under 15 minutes: forms, surveys, quick emails</td></tr>
-      <tr><td>2</td><td>15 to 30 minutes: quizzes, discussion posts, journals</td></tr>
-      <tr><td>3</td><td>30 to 60 minutes</td></tr>
-      <tr><td>5</td><td>1 to 2 hours: homework sets</td></tr>
-      <tr><td>8</td><td>2 to 4 hours: papers, presentations</td></tr>
-      <tr><td>13</td><td>4 hours or more: projects</td></tr></tbody></table>
-    <ul>
-      <li><b>Levels.</b> Each goal is someone you're becoming: ${S.identities.filter((g) => g.kind === "goal").map((g) => esc(g.title)).join(", ")}. A task's points go to its class, then up to its goals. 20 points reaches level 2, then 30 more, 40 more, and so on. Levels never go down.</li>
-      <li><b>Producer day.</b> ${S.progress.goal} points in a day means the day's work is done. Anything after that is a bonus, with no guilt and no argument in your head.</li>
-      <li><b>Not-zero streak.</b> Any day with at least 1 point counts. Missing a day resets the streak, never your levels.</li>
-      <li><b>Where you see it.</b> The Done screen, "Who you're becoming" on the main screen, the map (each goal is a colored group with its level), and the level card at the top of every goal and class note in Obsidian.</li>
-      <li><b>Rewards that build you.</b> When a goal levels up, spend the win on something that makes you more, not less: a build session on your own project, pickup basketball, a real meal with a friend, a new book, a gym PR attempt.</li>
-    </ul>
-    <p class="sub">Open Game Plan from anywhere: <b>⌥⌘G</b> (Option-Command-G).</p>
+      <tr><td>1</td><td>under 15 min</td><td>forms, surveys, a quick email</td></tr>
+      <tr><td>2</td><td>15 to 30 min</td><td>a quiz, a discussion post, a journal</td></tr>
+      <tr><td>3</td><td>30 to 60 min</td><td>a short assignment</td></tr>
+      <tr><td>5</td><td>1 to 2 hours</td><td>a problem set</td></tr>
+      <tr><td>8</td><td>2 to 4 hours</td><td>a paper, a presentation</td></tr>
+      <tr><td>13</td><td>4 hours or more</td><td>a project milestone</td></tr></tbody></table>
+    <p class="sub">Claude sizes every task from how long similar ones actually took you. Wrong size? Click the points on the main screen.</p>
+    <h3 class="sheet-h3">2. Your goals level up</h3>
+    <p class="sub">Each goal is someone you're becoming: ${goals.map((g) => esc(g.title)).join(", ")}. A finished task's points go to its class, then up to every goal above it.
+      Level 2 takes 20 points, then each level takes 10 more than the last. Levels never go down: a level is hours of real work you've already put in.</p>
+    ${ladder(null)}
+    <h3 class="sheet-h3">3. A producer day</h3>
+    <p class="sub">${S.progress.goal} points in a day means the day's work is done. Everything after that is a bonus, with no guilt and no argument in your head. Any day with at least 1 point keeps your not-zero streak.</p>
+    <h3 class="sheet-h3">4. Rewards that build you</h3>
+    <p class="sub">When a goal levels up, spend the win on something that makes you more, not less: a build session on your own project, pickup basketball, a real meal with a friend, a new book, a gym PR attempt. Or send someone this week's build list.</p>
+    <p class="sub">Open Game Plan from anywhere: <b>⌥⌘G</b>.</p>
     <div class="row-btns"><button class="go" data-close>Got it</button></div>`);
+}
+
+function levelSheet(g) {
+  if (!g) return;
+  const since = g.since ? shortDay(g.since) : null;
+  sheet(`<h2 id="sheet-h">${esc(g.title)}</h2>
+    <p class="sub">${esc(g.rank)} · level ${g.level}${g.feeds.length ? ` · fed by ${g.feeds.map(esc).join(", ")}` : ""}</p>
+    <div class="numbers">
+      <div><b>${g.pts}</b><span>points of proof</span></div>
+      <div><b>~${g.hours} h</b><span>of real work${since ? " since " + since : ""}</span></div>
+      <div><b>${g.need - g.into}</b><span>points to ${esc(g.next_rank)}</span></div></div>
+    <div class="lv-bar big-bar"><i style="width:${Math.round((g.into / g.need) * 100)}%"></i></div>
+    <p class="sub">${g.into} of ${g.need} points into level ${g.level}. That's about ${Math.max(1, Math.ceil((g.need - g.into) / 5))} more homework-sized tasks.</p>
+    ${g.recent.length ? `<h3 class="sheet-h3">Latest proof</h3><ul class="proof">${g.recent.map((r) => `<li><b>${esc(r.title)}</b> · ${esc(r.cls)} · +${r.points} · ${shortDay(r.date)}</li>`).join("")}</ul>`
+      : `<p class="sub">No proof yet. Finish one task for ${esc(g.title)} to start the climb.</p>`}
+    <h3 class="sheet-h3">The ladder</h3>${ladder(g)}
+    <div class="row-btns"><button class="go" data-close>Back to work</button></div>`);
+}
+
+function weekText() {
+  const w = S.week_built, byCls = {};
+  for (const grp of w.groups) for (const it of grp.items) (byCls[it.cls] = byCls[it.cls] || []).push(it);
+  const classes = Object.entries(byCls).sort((a, b) => b[1].reduce((s, x) => s + x.points, 0) - a[1].reduce((s, x) => s + x.points, 0));
+  const ups = w.levels.filter((l) => l.to > l.from);
+  return [`This week I built (${shortDay(w.from)} to ${shortDay(w.to)}): ${w.count} things, about ${w.hours} hours of focused work.`, "",
+    ...classes.map(([cls, items]) => `${cls}: ${items.map((x) => x.title).join(", ")}`),
+    ...(ups.length ? ["", "Leveled up: " + ups.map((l) => `${l.title} ${l.from} → ${l.to}`).join(", ")] : [])].join("\n");
+}
+
+function weekSheet() {
+  const text = weekText();
+  sheet(`<h2 id="sheet-h">This week's build list</h2>
+    <p class="sub">Send it to someone who should see you building: a mentor, your supervisor, a friend who's grinding too. Showing your work is the reward.</p>
+    <pre class="week-text" id="week-text">${esc(text)}</pre>
+    <div class="row-btns"><button class="go" id="copy-week">Copy</button><button type="button" class="quiet" data-close>Close</button></div>`,
+  (el) => {
+    $("#copy-week", el).onclick = async (e) => {
+      try { await navigator.clipboard.writeText(text); e.currentTarget.textContent = "Copied"; }
+      catch { const r = document.createRange(); r.selectNodeContents($("#week-text", el)); getSelection().removeAllRanges(); getSelection().addRange(r); say("Selected. Press ⌘C to copy."); }
+    };
+  });
 }
 
 function setupSheet() {

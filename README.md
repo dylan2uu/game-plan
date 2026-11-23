@@ -15,8 +15,10 @@ vault, and keeps every finished task linked up to the goal it serves.
 
 ## What it does
 
-- **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. **Start** is one click (a minutes guess is optional). **Open in Brightspace** goes straight to the assignment. **Done** plays one short burst and shows where the points go: `+5 pts → class → goal → bigger goal`, with an **Undo** if it was a mis-click. **Stuck?** gives a question, then a hint, then a worked example of a *similar* problem.
+- **Do this now.** The single most urgent task, ranked by deadline, size and your free time, with one line on why it's first. **Start** is one click and shows the estimate. **Open in Brightspace** goes straight to the assignment. **Done** plays one short burst and shows where the points go: `+5 pts → class → goal → bigger goal`, with an **Undo** if it was a mis-click. **Stuck?** gives a question, then a hint, then a worked example of a *similar* problem.
 - **Up next.** The next five tasks in order, each with Start and a done circle.
+- **Sizes that fit the task.** Claude estimates each open task in minutes, calibrated on how long your finished tasks actually took; points follow from the minutes. Wrong size? Click the points to set it yourself (that sticks).
+- **Live.** The page updates within 2 seconds of any change (Obsidian, the Brightspace sync, another window), and the map and notes redraw just as fast.
 - **Today and who you're becoming.** How many tasks you finished today and what they were, points against 10 (a *producer day*), and a level for each goal: every finished point is proof for the person you're becoming. **How points work** explains it.
 - **All tasks.** The next 7 days' work against your free time ("On track" / "Tight"), a 4-week calendar with each day's load, a "what you have" graph of open work by class (overdue in red), and every task in one list. A task's name opens it in Brightspace (in Chrome). Click a day or a class to filter.
 - **Brightspace sync.** The Chrome extension checks your submissions with the login already in Chrome: submitted there means done here, dated by the submission. Anything you mark done that Brightspace shows as not submitted gets flagged. It only reads; it never submits anything.
@@ -31,7 +33,7 @@ vault, and keeps every finished task linked up to the goal it serves.
 
 Points are proof. Every finished task is evidence for the person you're becoming.
 
-| Points | Roughly |
+| Points | Time it really takes |
 |---|---|
 | 1 | under 15 min |
 | 2 | 15–30 min |
@@ -40,7 +42,8 @@ Points are proof. Every finished task is evidence for the person you're becoming
 | 8 | 2–4 h |
 | 13 | 4 h or more |
 
-- **Levels.** A task's points go to its class, then up to its goals (Software Engineer, CS Degree, Body…). 20 points reaches level 2, then 30 more, 40 more… Levels never go down, so a neglected goal stays visibly at level 1 until you feed it.
+- **Levels and ranks.** A task's points go to its class, then up to its goals. 20 points reaches level 2, then 30 more, 40 more… Each level has a rank (Walk-on, Bench, Rotation, Starter, Captain, All-Star, MVP, Champion, Hall of Famer, Legend) and stands for real hours of work already done. Click a goal to see its ladder and latest proof. Levels never go down, so a neglected goal stays visibly low until you feed it.
+- **This week's build list.** One click copies what you finished this week, grouped by class, to send to someone who should see you building.
 - **Producer day.** 10 points in a day means the day's work is done. Everything after is a bonus, no guilt.
 - **Not-zero streak.** Any day with at least 1 point.
 

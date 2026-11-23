@@ -90,7 +90,6 @@ if a.shots:
         pg.goto("http://127.0.0.1:4397/")
         expect(pg.locator(".hero .title")).to_be_visible()
         pg.screenshot(path=os.path.join(a.shots, "now.png"))
-        pg.click('.chip-btn[data-min="60"]')
         pg.click("#start")
         expect(pg.locator(".kicker")).to_have_text("On the clock")
         pg.wait_for_timeout(1200)
