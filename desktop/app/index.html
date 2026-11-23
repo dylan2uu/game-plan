@@ -16,9 +16,9 @@
     <button class="view" id="tab-now" aria-pressed="true">Now</button>
     <button class="view" id="tab-all" aria-pressed="false">All tasks</button>
   </nav>
-  <p class="experiment" id="experiment"></p>
+  <span class="spacer"></span>
   <div class="bar-actions">
-    <button class="pill" id="open-review" hidden>Sunday review</button>
+    <button class="pill warn-pill" id="setup" hidden>Finish setup: Brightspace sync</button>
     <button class="pill" id="open-checkin" hidden>Night check-in</button>
     <a class="link" id="map" href="#">Open my map</a>
   </div>
@@ -35,7 +35,7 @@
       <div id="next" class="rows"></div>
     </section>
     <section class="panel progress" aria-labelledby="prog-h">
-      <div class="head"><h2 id="prog-h">Progress</h2><button class="link-btn" id="how-points">How points work</button></div>
+      <div class="head"><h2 id="prog-h">Today</h2><button class="link-btn" id="how-points">How points work</button></div>
       <div id="progress"></div>
     </section>
   </aside>
@@ -57,6 +57,7 @@
   </section>
   <section class="panel list" aria-labelledby="list-h">
     <div class="head"><h2 id="list-h">All tasks</h2><span class="count" id="list-count"></span></div>
+    <p class="week-line" id="week-line"></p>
     <p class="sync" id="sync" aria-live="polite"></p>
     <div class="filters" id="filters"></div>
     <div id="list" class="rows"></div>

@@ -141,23 +141,20 @@ class ModelTests(Base):
         V.ensure_vault(self.v)
         p = os.path.join(self.v, V.CANVAS)
         c = json.load(open(p))
-        texts = " ".join(n["text"] for n in c["nodes"])
+        texts = " ".join(n.get("text", "") for n in c["nodes"])
         for want in ("[[Vision|Vision]]", "[[CS 350 Hub|CS 350]]", "[[Lab|Lab]]", "[[Area - Body|Body]]", "[[Gym|Gym]]", "due tomorrow"):
             self.assertIn(want, texts)
         ids = {n["id"] for n in c["nodes"]}
         self.assertTrue(all(e["fromNode"] in ids and e["toNode"] in ids for e in c["edges"]))
-        boxes = [(n["x"], n["y"], n["x"] + n["width"], n["y"] + n["height"]) for n in c["nodes"]]
+        groups = [n for n in c["nodes"] if n["type"] == "group"]
+        self.assertTrue(any(g["label"].startswith("Software Engineer · level") for g in groups))
+        boxes = [(n["x"], n["y"], n["x"] + n["width"], n["y"] + n["height"]) for n in c["nodes"] if n["type"] != "group"]
         self.assertFalse([1 for i, a in enumerate(boxes) for b in boxes[i + 1:] if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]])
-        lab = next(n for n in c["nodes"] if "[[Lab|" in n["text"])
+        lab = next(n for n in c["nodes"] if "[[Lab|" in n.get("text", ""))
         self.assertEqual(lab.get("color"), V.COLORS["soon"])
         before = V.read(p)
         V.ensure_vault(self.v)
         self.assertEqual(V.read(p), before)                # redrawn only when something changed
-
-    def test_experiment_swap(self):
-        ex = V.decide_experiment(self.v, "swap", "", TODAY)
-        self.assertEqual((ex["active"], ex["next"], ex["title"]), (1, 2, "The gym is the alarm"))
-        self.assertIn("swapped #4 Ship ugly → #1 The gym is the alarm", V.read(os.path.join(self.v, "System/experiments.md")))
 
 
 @unittest.skipUnless(os.path.exists(os.path.join(REAL, "System", "scripts", "vaultlib.py")), "needs vaultlib.py")
@@ -184,7 +181,7 @@ class FlowTests(Base):
         self.assertIn("[[PROJ3]] · +8 pts · CS 350", daily)
         self.assertIn("📊 Game Plan: 1 done · 8 pts", daily)
         p2 = task(self.v, "Quiz", due=TODAY.isoformat(), extra="points: 2\n")
-        self.assertTrue(S.finish(os.path.relpath(p2, self.v))["reward_hit"])      # 8 + 2 crosses 10
+        self.assertTrue(S.finish(os.path.relpath(p2, self.v))["producer_day"])    # 8 + 2 crosses 10
         with self.assertRaises(S.Bad):
             S.finish(rel)
 
@@ -293,13 +290,28 @@ class FlowTests(Base):
         self.assertEqual(out["done"]["points"], 2)
         self.assertIn("status: done", V.read(p))
 
-    def test_checkin_and_review(self):
-        S.checkin({"got_done": "PROJ3 spec", "in_the_way": "shorts", "experiment": "yes"})
-        self.assertIn("- Ran this week's experiment (#4 Ship ugly): yes", V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md")))
-        S.review({"worked": "gym", "in_the_way": "sleep", "decision": "swap"})
-        wk = V.read(V.weekly_path(self.v, TODAY))
-        self.assertIn("## Experiment: swap", wk)
-        self.assertIn("Next week: #1 The gym is the alarm", wk)
+    def test_checkin(self):
+        S.checkin({"got_done": "PROJ3 spec", "in_the_way": "shorts"})
+        note = V.read(os.path.join(self.v, "06 Daily", f"{TODAY}.md"))
+        self.assertIn("- Got done that mattered: PROJ3 spec\n- Got in the way: shorts", note)
+        self.assertNotIn("experiment", note)
+
+    def test_levels_and_level_up(self):
+        self.assertEqual([V.level(p) for p in (0, 19, 20, 49, 50, 90)], [(1, 0, 20), (1, 19, 20), (2, 0, 30), (2, 29, 30), (3, 0, 40), (4, 0, 50)])
+        big = task(self.v, "Project", due=TODAY.isoformat(), extra="points: 13\n")
+        task(self.v, "Lab", due=TODAY.isoformat(), status="done", extra=f"points: 8\ndone_date: {TODAY}\n")
+        res = S.finish(os.path.relpath(big, self.v))                              # 8 + 13 = 21 → CS Degree reaches level 2
+        up = {l["title"]: l for l in res["levels"]}
+        self.assertTrue(up["CS Degree"]["up"])
+        self.assertEqual((up["CS Degree"]["level"], up["CS Degree"]["into"]), (2, 1))
+        self.assertEqual(res["built_today"], 2)
+        ids = {g["title"]: g for g in S.state_json()["identities"]}
+        self.assertEqual((ids["Body"]["level"], ids["Body"]["pts"]), (1, 0))
+        st = S.state_json()["progress"]
+        self.assertEqual((st["today"], sorted(st["built"])), (21, ["Lab", "Project"]))
+        goal = V.read(os.path.join(self.v, "07 Map/Goal - CS Degree.md"))
+        self.assertIn("> [!gp-level] Level 2 · 1 / 30 to level 3", goal)
+        self.assertIn("> [!gp-done]- Built lately · 2 total", goal)
 
     def test_nudges(self):
         sat = dt.datetime.combine(TODAY + dt.timedelta(days=(5 - TODAY.weekday()) % 7), dt.time(13))  # a free Saturday afternoon

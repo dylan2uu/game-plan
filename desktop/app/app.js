@@ -34,7 +34,6 @@ const shortDay = (isoDay) => day(isoDay).toLocaleDateString("en-US", { weekday: 
 const pts = (n) => `${n} pt${n === 1 ? "" : "s"}`;
 const hm = (m) => { m = Math.round(m || 0); const h = Math.floor(m / 60), r = m % 60; return h >= 10 ? `${Math.round(m / 60)}h` : h ? (r ? `${h}h ${r}m` : `${h}h`) : `${r}m`; };
 const firstSentence = (s) => (String(s || "").match(/^[^.!?]*[.!?]?["”']?/) || [""])[0].trim();
-const rewardShort = () => firstSentence(S.progress.reward).replace(/\.$/, "") || "Your reward";
 function dueWords(t) {
   if (!t.due) return "no due date";
   const d = daysBetween(S.today, t.due);
@@ -76,10 +75,11 @@ function render(state) {
 }
 
 function renderBar() {
-  const ex = S.experiment;
-  $("#experiment").innerHTML = ex.title ? `This week's experiment: <b>${esc(ex.title)}.</b> ${esc(firstSentence(ex.text))}` : "";
+  const b = S.brightspace || {};
+  const needs = !S.extension_ever || b.error === "not_connected" || b.error === "login";
+  $("#setup").hidden = !needs;
+  $("#setup").textContent = b.error === "login" ? "Log in to Brightspace in Chrome" : "Finish setup: Brightspace sync";
   $("#open-checkin").hidden = !S.checkin_due;
-  $("#open-review").hidden = !S.review_due;
   $("#map").href = S.map;
 }
 
@@ -190,31 +190,30 @@ async function rowAction(e) {
 }
 
 function renderNext() {
-  const items = S.next.map((h) => S.all.find((t) => t.id === h.id)).filter(Boolean);
+  const items = S.next.map((h) => S.all.find((t) => t.id === h.id)).filter(Boolean).slice(0, 4);
   $("#next").innerHTML = items.length ? items.map((t) => row(t)).join("")
     : `<p class="nothing">Nothing else is open. Type something below, or take the win.</p>`;
   $("#next").onclick = rowAction;
 }
 
 function renderProgress() {
-  const p = S.progress, w = S.week;
+  const p = S.progress, ids = S.identities.filter((g) => g.kind === "goal");
   const monday = addDays(S.today, -((day(S.today).getDay() + 6) % 7));
   const byDay = Object.fromEntries(p.days.map((d) => [d.date, d.total]));
   const dots = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(monday, i);
     return `<span><i class="${byDay[d] > 0 ? "on" : ""} ${d === S.today ? "today" : ""}" title="${shortDay(d)}: ${byDay[d] || 0} pts"></i>${"MTWTFSS"[i]}</span>`;
   }).join("");
-  const tight = w.left && w.need_min > w.free_min;
+  const producer = p.today >= p.goal;
   $("#progress").innerHTML = `
-    <div class="prog-today"><span class="big">${p.today}<small> / ${p.goal} pts today</small></span></div>
+    <div class="prog-today"><span class="big">${p.built.length}<small> done</small></span><span class="big pts-big">${p.today}<small> / ${p.goal} pts</small></span>
+      ${producer ? `<span class="badge">Producer day</span>` : ""}</div>
     <div class="meter" aria-hidden="true">${Array.from({ length: p.goal }, (_, i) => `<i class="${i < p.today ? "on" : ""}"></i>`).join("")}</div>
-    <p class="reward ${p.today >= p.goal ? "earned" : ""}">${p.today >= p.goal ? `${p.today} points. ${esc(rewardShort())} is earned.`
-      : `${p.goal - p.today} more for today's reward: ${esc(rewardShort().toLowerCase())}.`}</p>
-    <div class="wk">
-      <span>Done this week: <b>${w.done}</b> tasks, <b>${w.pts_done}</b> pts</span>
-      <span>Next 7 days: <b>${w.left}</b> left${w.late ? ` (<span class="late">${w.late} overdue</span>)` : ""}, about <b>${hm(w.need_min)}</b> of work and <b>${hm(w.free_min)}</b> free</span>
-      <span class="verdict ${tight ? "tight" : "ok"}">${esc(w.verdict)}</span>
-    </div>
+    <p class="built">${p.built.length ? "Built: " + p.built.map(esc).join(" · ") : `Nothing finished yet. ${p.goal} points makes it a producer day.`}</p>
+    <h3 class="sub-h">Who you're becoming</h3>
+    <div class="levels">${ids.map((g) => `<div class="lv" title="${g.pts} pts of proof">
+      <span class="lv-name">${esc(g.title)}</span><span class="lv-num">Lv ${g.level}</span>
+      <span class="lv-bar"><i style="width:${Math.round((g.into / g.need) * 100)}%"></i></span><span class="lv-left">${g.need - g.into} to ${g.level + 1}</span></div>`).join("")}</div>
     <div class="streak"><span>Not-zero streak: <b>${p.streak}</b> day${p.streak === 1 ? "" : "s"}</span><span class="dots" aria-label="Days with points this week">${dots}</span></div>`;
 }
 $("#how-points").onclick = () => pointsSheet();
@@ -301,6 +300,8 @@ function renderSync() {
 
 function renderList() {
   renderSync();
+  const w = S.week;
+  $("#week-line").innerHTML = `Next 7 days: <b>${w.left}</b> left${w.late ? ` (<span class="late">${w.late} overdue</span>)` : ""}, about <b>${hm(w.need_min)}</b> of work and <b>${hm(w.free_min)}</b> free. <span class="verdict ${w.left && w.need_min > w.free_min ? "tight" : "ok"}">${esc(w.verdict)}</span>`;
   let items = openTasks();
   if (filter.cls) items = items.filter((t) => t.cls === filter.cls);
   if (filter.day) items = S.all.filter((t) => t.due === filter.day && (!filter.cls || t.cls === filter.cls));
@@ -354,6 +355,7 @@ function burst(d, id) {
     .concat(d.chain.flatMap((c, i) => [`<span class="arrow" style="animation-delay:${(1.0 + i * 0.2).toFixed(2)}s">→</span>`,
                                        `<span style="animation-delay:${(1.05 + i * 0.2).toFixed(2)}s">${esc(c)}</span>`]));
   const g = d.est && d.actual ? `You guessed ${d.est} min, took ${d.actual}.` : d.actual ? `Took ${d.actual} min.` : "";
+  const ups = (d.levels || []).filter((l) => l.up), goals = (d.levels || []).filter((l) => l.kind === "goal").slice(0, 2);
   b.innerHTML = `
     <svg class="hoop" viewBox="0 0 120 120" aria-hidden="true">
       <rect x="20" y="2" width="80" height="56" rx="3" fill="none" stroke="#C9BCAB" stroke-opacity=".5" stroke-width="2"/>
@@ -365,8 +367,11 @@ function burst(d, id) {
       <path d="M2 23 H44 M23 2 V44 M8 8 C17 16 17 30 8 38 M38 8 C29 16 29 30 38 38" stroke="#5A2A0C" stroke-width="1.6" fill="none"/></svg></div>
     <div class="score" role="status">
       <div class="walk">${steps.join("")}</div>
+      <div class="burst-levels">${goals.map((l) => `<div class="lv"><span class="lv-name">${esc(l.title)}</span><span class="lv-num">Lv ${l.level}</span>
+        <span class="lv-bar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span><span class="lv-left">${l.need - l.into} to ${l.level + 1}</span></div>`).join("")}</div>
+      ${ups.length ? `<div class="reward-line">Level up: ${ups.map((l) => `${esc(l.title)} is level ${l.level}`).join(" · ")}</div>` : ""}
+      ${d.producer_day ? `<div class="reward-line">Producer day. ${d.built_today} things built, the day's work is done. Everything after this is a bonus.</div>` : ""}
       ${g ? `<div class="guess-line">${g}</div>` : ""}
-      ${d.reward_hit ? `<div class="reward-line">${d.today} points today. ${esc(firstSentence(d.reward).replace(/\.$/, ""))} is earned.</div>` : ""}
       ${id ? `<button class="quiet undo" id="undo">Undo, I didn't finish this</button>` : ""}
     </div>`;
   b.hidden = false;
@@ -384,7 +389,7 @@ function burst(d, id) {
   }
   const close = () => { b.hidden = true; b.innerHTML = ""; };
   b.onclick = (e) => { if (e.target.id === "undo") { close(); undo(id); } else close(); };
-  setTimeout(close, d.reward_hit ? 7000 : 5200);
+  setTimeout(close, (d.levels || []).some((l) => l.up) || d.producer_day ? 7500 : 5600);
 }
 
 /* ---------- type box ---------- */
@@ -437,9 +442,8 @@ function choices(el) {
 }
 
 function pointsSheet() {
-  const p = S.progress;
   sheet(`<h2 id="sheet-h">How points work</h2>
-    <p class="sub">Points measure how big a task is, not how well it went. Bigger task, more points.</p>
+    <p class="sub">Points are proof. Every finished task is evidence for the person you're becoming, and that proof levels you up.</p>
     <table class="sizes"><tbody>
       <tr><td>1</td><td>Under 15 minutes: forms, surveys, quick emails</td></tr>
       <tr><td>2</td><td>15 to 30 minutes: quizzes, discussion posts, journals</td></tr>
@@ -448,14 +452,36 @@ function pointsSheet() {
       <tr><td>8</td><td>2 to 4 hours: papers, presentations</td></tr>
       <tr><td>13</td><td>4 hours or more: projects</td></tr></tbody></table>
     <ul>
-      <li><b>Where they come from.</b> Brightspace assignments are sized by their type. Anything you type in the box gets sized by Claude. You can change <code>points:</code> in any note.</li>
-      <li><b>Every day.</b> Hit ${p.goal} points and you've earned ${esc(rewardShort().toLowerCase())}.</li>
-      <li><b>The streak.</b> Any day with at least 1 point is a not-zero day. Missing a day resets the streak, never your points.</li>
-      <li><b>Where they add up.</b> A finished task adds its points to its class, then its goal, then your vision. You see it when you press Done, on the 📊 line in each Obsidian note, and on the map.</li>
-      <li><b>Submitted on Brightspace counts.</b> Game Plan checks Brightspace and marks those done for you, dated the day you submitted.</li>
+      <li><b>Levels.</b> Each goal is someone you're becoming: ${S.identities.filter((g) => g.kind === "goal").map((g) => esc(g.title)).join(", ")}. A task's points go to its class, then up to its goals. 20 points reaches level 2, then 30 more, 40 more, and so on. Levels never go down.</li>
+      <li><b>Producer day.</b> ${S.progress.goal} points in a day means the day's work is done. Anything after that is a bonus, with no guilt and no argument in your head.</li>
+      <li><b>Not-zero streak.</b> Any day with at least 1 point counts. Missing a day resets the streak, never your levels.</li>
+      <li><b>Where you see it.</b> The Done screen, "Who you're becoming" on the main screen, the map (each goal is a colored group with its level), and the level card at the top of every goal and class note in Obsidian.</li>
+      <li><b>Rewards that build you.</b> When a goal levels up, spend the win on something that makes you more, not less: a build session on your own project, pickup basketball, a real meal with a friend, a new book, a gym PR attempt.</li>
     </ul>
+    <p class="sub">Open Game Plan from anywhere: <b>⌥⌘G</b> (Option-Command-G).</p>
     <div class="row-btns"><button class="go" data-close>Got it</button></div>`);
 }
+
+function setupSheet() {
+  const b = S.brightspace || {};
+  sheet(`<h2 id="sheet-h">${b.error === "login" ? "Log in to Brightspace" : "Finish setup: Brightspace sync"}</h2>
+    <p class="sub">${b.error === "login"
+      ? "The extension is connected, but Chrome isn't logged in to Brightspace. Log in there once; the next check clears everything you've already submitted."
+      : "Once the Chrome extension is in, anything you've submitted on Brightspace drops off your list by itself, and the blocker and night lock turn on."}</p>
+    ${b.error === "login" ? "" : `<ul>
+      <li><b>1.</b> Press the button below. It opens Chrome's extensions page and the extension's folder.</li>
+      <li><b>2.</b> Turn on <b>Developer mode</b> (top right), then drag the <b>extension</b> folder onto the page.</li>
+      <li><b>3.</b> A "Connect Brightspace" tab opens. Press <b>Connect</b>, then <b>Allow</b>.</li></ul>`}
+    <div class="row-btns">${b.error === "login" ? "" : `<button class="go" id="open-ext">Open the extensions page</button>`}
+      <button type="button" class="quiet" data-close>Later</button></div>`,
+  (el) => {
+    const btn = $("#open-ext", el);
+    if (btn) btn.onclick = async () => {
+      try { await api("/api/setup/extension", {}); btn.textContent = "Opened in Chrome"; } catch (e) { say(e.message, true); }
+    };
+  });
+}
+$("#setup").onclick = setupSheet;
 
 function spitball(idea) {
   sheet(`<h2 id="sheet-h">${esc(idea.title)}</h2>
@@ -484,22 +510,17 @@ function spitball(idea) {
 }
 
 function checkin() {
-  const ex = S.experiment;
   sheet(`<h2 id="sheet-h">Night check-in</h2><p class="sub">Under a minute. Saved to today's daily note.</p>
     <form id="ci">
       <label>What did you get done that mattered?<textarea id="ci-got" maxlength="400"></textarea></label>
       <label>What got in the way?<textarea id="ci-way" maxlength="400"></textarea></label>
-      <p class="sub">Did you run this week's experiment (${esc(ex.title)})?</p>
-      <div class="row-btns"><button type="button" class="choice" data-v="yes" aria-pressed="false">Yes</button>
-        <button type="button" class="choice" data-v="no" aria-pressed="false">No</button></div>
       <div class="row-btns" style="margin-top:20px"><button class="go">Save</button><button type="button" class="quiet" data-close>Later</button></div>
     </form>`,
   (el, close) => {
-    const pick = choices(el);
     $("#ci", el).onsubmit = async (e) => {
       e.preventDefault();
       try {
-        const r = await api("/api/checkin", { got_done: $("#ci-got", el).value, in_the_way: $("#ci-way", el).value, experiment: pick() || "no" });
+        const r = await api("/api/checkin", { got_done: $("#ci-got", el).value, in_the_way: $("#ci-way", el).value });
         close();
         render(r.state);
         say("Saved to today's note. Wind down.");
@@ -508,39 +529,7 @@ function checkin() {
   });
 }
 
-function review() {
-  const n = S.review, ex = S.experiment;
-  const box = (v, l) => `<div><b>${esc(v)}</b><span>${l}</span></div>`;
-  sheet(`<h2 id="sheet-h">Sunday review</h2><p class="sub">${shortDay(n.from)} to ${shortDay(n.to)}. Five minutes, then it's saved as this week's note.</p>
-    <div class="numbers">${box(n.points, "points")}${box(n.done, "finished")}${box(n.not_zero_days + "/7", "not-zero days")}
-      ${box(n.best_day.split(" (")[0], "best day")}${box(n.top, "most points")}
-      ${box(n.estimate.startsWith("no ") ? "—" : n.estimate.replace("you guessed ", "").replace(" min, took ", " → "), "guessed → took (min)")}</div>
-    <form id="rv">
-      <label>What worked?<textarea id="rv-ok" maxlength="600"></textarea></label>
-      <label>What got in the way?<textarea id="rv-way" maxlength="600"></textarea></label>
-      <p class="sub">This week's experiment: ${esc(ex.title)}. Keep it, change it, or swap to the next one?</p>
-      <div class="row-btns"><button type="button" class="choice" data-v="keep" aria-pressed="true">Keep</button>
-        <button type="button" class="choice" data-v="change" aria-pressed="false">Change</button>
-        <button type="button" class="choice" data-v="swap" aria-pressed="false">Swap</button></div>
-      <label style="margin-top:14px">What changes? (optional)<input id="rv-note" maxlength="300"></label>
-      <div class="row-btns"><button class="go">Save the week</button><button type="button" class="quiet" data-close>Later</button></div>
-    </form>`,
-  (el, close) => {
-    const pick = choices(el);
-    $("#rv", el).onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const r = await api("/api/review", { worked: $("#rv-ok", el).value, in_the_way: $("#rv-way", el).value, decision: pick() || "keep", note: $("#rv-note", el).value });
-        close();
-        render(r.state);
-        say(`Week saved. This week's experiment: ${r.state.experiment.title}.`);
-      } catch (err) { say(err.message, true); }
-    };
-  });
-}
-
 $("#open-checkin").onclick = checkin;
-$("#open-review").onclick = review;
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (!document.hidden) refresh(); }, 30000);
 if (location.hash === "#all") show("all");

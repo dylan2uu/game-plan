@@ -35,13 +35,13 @@ button { touch-action: manipulation; }
 .view { border: 0; background: none; color: var(--chalk-2); height: 32px; padding: 0 16px; border-radius: 999px; font-weight: 600; font-size: 14px; cursor: pointer; }
 .view:hover { color: var(--chalk); }
 .view[aria-pressed="true"] { background: var(--maple); color: #24170A; }
-.experiment { flex: 1; min-width: 0; margin: 0; color: var(--chalk-3); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.experiment b { color: var(--chalk-2); font-weight: 600; }
 .bar-actions { display: flex; align-items: center; gap: 14px; }
 .link { color: var(--maple); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .pill { border: 1px solid var(--maple); background: none; color: var(--maple); border-radius: 999px; height: 34px; padding: 0 16px; font-weight: 600; font-size: 14px; cursor: pointer; }
 .pill:hover { background: rgba(224, 179, 110, .12); }
+.warn-pill { border-color: var(--ball); color: var(--ball); }
+.warn-pill:hover { background: rgba(239, 122, 46, .12); }
 
 /* ---------- shared panels ---------- */
 .court { display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 26px; min-height: 0; }
@@ -118,6 +118,26 @@ button { touch-action: manipulation; }
 .mini { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--maple); background: none; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--maple); }
 .mini:hover { background: rgba(224, 179, 110, .1); }
 .up-next .rows { flex: 1; }
+
+/* ---------- today + who you're becoming ---------- */
+.prog-today .pts-big { margin-left: 18px; }
+.badge { margin-left: auto; align-self: center; font-size: 13px; font-weight: 700; color: #1C1611; background: var(--sage); border-radius: 999px; padding: 4px 12px; }
+.built { margin: 0 0 12px; font-size: 13px; color: var(--chalk-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sub-h { margin: 0 0 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--chalk-3); }
+.levels { display: grid; gap: 5px; margin-bottom: 10px; }
+.lv { display: grid; grid-template-columns: minmax(0, 1fr) 42px 110px 58px; align-items: center; gap: 8px; font-size: 13px; }
+.lv-name { font-weight: 600; color: var(--chalk); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-num { font: 700 17px/1 var(--display); color: var(--maple); padding-top: 3px; font-variant-numeric: tabular-nums; }
+.lv-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.lv-bar i { display: block; height: 100%; background: var(--maple); border-radius: 4px; }
+.lv-left { color: var(--chalk-3); text-align: right; font-variant-numeric: tabular-nums; }
+.burst-levels { display: grid; gap: 8px; width: min(560px, 80vw); margin: 22px auto 0; opacity: 0; animation: step .4s ease-out 1.4s forwards; text-align: left; }
+.burst-levels .lv { font-size: 16px; grid-template-columns: minmax(0, 1fr) 54px 200px 80px; }
+.burst-levels .lv-num { font-size: 22px; }
+.burst-levels .lv-bar { height: 10px; }
+.burst .reward-line { font-size: 30px; margin-top: 16px; }
+.week-line { margin: -4px 0 6px; font-size: 13px; color: var(--chalk-2); }
+.week-line b { color: var(--chalk); }
 
 /* ---------- progress ---------- */
 .prog-today { display: flex; align-items: baseline; gap: 10px; }

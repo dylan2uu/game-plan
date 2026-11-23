@@ -113,11 +113,6 @@ def text_arg(body, key, limit, required=True):
     return v
 
 
-def reward(vault):
-    m = re.search(r"(?m)^Daily reward[^:]*:\s*(.+)$", V.read(os.path.join(vault, "System", "experiments.md")))
-    return m.group(1).strip() if m else "Basketball"
-
-
 def view(t, why, nd):
     up = V.done_chain(nd, t["cls"])
     return {"id": t["id"], "title": t["title"], "cls": t["cls"], "points": t["points"], "status": t["status"],
@@ -181,23 +176,20 @@ def state_json():
         hero = view(*(chosen or ranked[0]), nd) if ranked else None
     week = week_summary(ts, t0, sched)
     unsub = set(st.get("unsubmitted", []))
-    ex = V.experiments(vault)
     daily = os.path.join(vault, "06 Daily", f"{today.isoformat()}.md")
-    review_due = today.weekday() == 6 and not os.path.exists(V.weekly_path(vault, today))
     return {
         "now": t0.isoformat(), "today": today.isoformat(), "hero": hero,
         "next": [view(t, why, nd) for t, why in ranked if not hero or t["id"] != hero["id"]][:5],
-        "week": week, "progress": dict(V.progress(ts, today), reward=reward(vault)),
-        "experiment": {"n": ex["active"], "title": ex["title"], "text": ex["text"]},
+        "week": week, "progress": V.progress(ts, today), "identities": V.identities(ts, nd),
         "map": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.CANVAS),
         "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
-        "review_due": review_due, "review": V.week_numbers(ts, today) if review_due else None,
         "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], status=t["status"], url=t["url"],
                      due=t["due"].isoformat() if t["due"] else None, done=t["done_date"].isoformat() if t["done_date"] else None,
                      bs=bool(bs_item(t["url"])), unsubmitted=t["id"] in unsub,
                      note="obsidian://open?path=" + urllib.parse.quote(t["path"])) for t in ts],
         "brightspace": dict(st.get("brightspace") or {}, requested=st.get("bs_request")),
         "busy": V.busy_now(t0, sched),
+        "extension_ever": bool(st.get("extension_seen")),
         "blocker": bool(parse_time(st.get("extension_seen")) and t0 - parse_time(st.get("extension_seen")) < dt.timedelta(minutes=3)),
     }
 
@@ -289,6 +281,13 @@ def bs_request(body):
         save_state(st)
 
 
+def setup_extension(body):
+    """One click from the setup sheet: Chrome's extensions page plus the extension folder in Finder."""
+    if os.environ.get("GP_NO_OPEN") != "1":
+        subprocess.run(["open", "-a", "/Applications/Google Chrome.app", "chrome://extensions"], check=False)
+        subprocess.run(["open", "-R", os.path.join(HERE, "extension", "manifest.json")], check=False)
+
+
 def open_url(body):
     """Open a web link in Chrome (not the default browser)."""
     url = str(body.get("url") or "")
@@ -333,6 +332,7 @@ def finish(rel):
         actual = max(1, round((t0 - parse_time(sess["started_at"])).total_seconds() / 60)) if sess else t["actual"]
         guess = sess["est"] if sess and sess.get("guessed") else t["my_est"]
         before = V.progress(ts, t0.date())["today"]
+        levels_before = {g["name"]: g["level"] for g in V.identities(ts, V.nodes(vault))}
         V.set_fields(t["path"], status="done", done_date=t0.date().isoformat(), actual_min=actual, started_at=None)
         if sess:
             st["session"] = None
@@ -340,8 +340,11 @@ def finish(rel):
         ts, nd = V.ensure_vault(vault, t0.date())
         V.refresh_day(vault, t0.date(), ts)
         after = V.progress(ts, t0.date())["today"]
+    up = set(V.chain(nd, V.home(nd, t["cls"])))
+    levels = [dict(g, up=g["level"] > levels_before.get(g["name"], g["level"])) for g in V.identities(ts, nd) if g["name"] in up]
     return {"id": t["id"], "title": t["title"], "points": t["points"], "chain": V.done_chain(nd, t["cls"]), "est": guess, "actual": actual,
-            "today": after, "goal": V.DAY_GOAL, "reward_hit": before < V.DAY_GOAL <= after, "reward": reward(vault)}
+            "today": after, "goal": V.DAY_GOAL, "producer_day": before < V.DAY_GOAL <= after,
+            "built_today": len(V.progress(ts, t0.date())["built"]), "levels": levels}
 
 
 def undo_done(body):
@@ -451,33 +454,10 @@ def spitball(body):
 def checkin(body):
     vault, today = CFG["vault"], dt.date.today()
     got, way = text_arg(body, "got_done", 400, False) or "—", text_arg(body, "in_the_way", 400, False) or "—"
-    ran = "yes" if body.get("experiment") in (True, "yes") else "no"
-    ex = V.experiments(vault)
     with LOCK:
         p = V.vaultlib(vault).daily_note(vault, today)
         V.write(p, V.replace_section(V.read(p), "Night check-in",
-                                     f"- Got done that mattered: {got}\n- Got in the way: {way}\n"
-                                     f"- Ran this week's experiment (#{ex['active']} {ex['title']}): {ran}"))
-
-
-def review(body):
-    vault, today = CFG["vault"], dt.date.today()
-    worked, way = text_arg(body, "worked", 600, False) or "—", text_arg(body, "in_the_way", 600, False) or "—"
-    decision = body.get("decision") if body.get("decision") in ("keep", "change", "swap") else "keep"
-    note = text_arg(body, "note", 300, False)
-    with LOCK:
-        ts = V.tasks(vault)
-        n = V.week_numbers(ts, today)
-        ex = V.experiments(vault)
-        after = V.decide_experiment(vault, decision, note, today)
-        days = " · ".join(f"[[{(today - dt.timedelta(days=i)).isoformat()}]]" for i in range(6, -1, -1))
-        V.write(V.weekly_path(vault, today),
-                f"---\ntype: weekly\ndate: {today}\nexperiment: \"#{ex['active']} {ex['title']}\"\n---\n"
-                f"# Week of {V.short_date(today - dt.timedelta(days=6))} – {V.short_date(today)}\n"
-                f"{V.STAT}{n['points']} pts · {n['done']} done · {n['not_zero_days']}/7 not-zero days · best: {n['best_day']} · "
-                f"top: {n['top']} · {n['estimate']}\n\nDays: {days}\n\n## What worked?\n{worked}\n\n## What got in the way?\n{way}\n\n"
-                f"## Experiment: {decision}\n#{ex['active']} {ex['title']}" + (f": {note}" if note else "")
-                + (f"\nNext week: #{after['active']} {after['title']}" if decision == "swap" else "") + "\n")
+                                     f"- Got done that mattered: {got}\n- Got in the way: {way}"))
 
 
 # ---------- focus blocker (Chrome extension) ----------
@@ -598,6 +578,7 @@ ROUTES = {
     "/api/skip": lambda b: (skip(b), {})[1],
     "/api/pick": lambda b: (pick(b), {})[1],
     "/api/open": lambda b: (open_url(b), {})[1],
+    "/api/setup/extension": lambda b: (setup_extension(b), {})[1],
     "/api/brightspace/report": bs_report,
     "/api/brightspace/check": lambda b: (bs_request(b), {})[1],
     "/api/stop": lambda b: (focus_act({"action": "stop"}), {})[1],
@@ -606,7 +587,6 @@ ROUTES = {
     "/api/type": file_typed,
     "/api/spitball": spitball,
     "/api/checkin": lambda b: (checkin(b), {})[1],
-    "/api/review": lambda b: (review(b), {})[1],
 }
 
 

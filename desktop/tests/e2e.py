@@ -116,12 +116,9 @@ with sync_playwright() as p:
     pg.screenshot(path=os.path.join(a.shots, "4-spitball.png"))
     pg.keyboard.press("Escape")
 
-    # 5. Sunday review sheet (only shows on Sundays)
-    if pg.locator("#open-review").is_visible():
-        pg.click("#open-review")
-        expect(pg.locator("#sheet h2")).to_have_text("Sunday review")
-        pg.screenshot(path=os.path.join(a.shots, "5-sunday-review.png"))
-        pg.keyboard.press("Escape")
+    # 5. the main screen explains itself: today's count, levels, how points work
+    pg.click("#tab-now")
+    expect(pg.locator(".levels .lv").first).to_be_visible()
     b.close()
 
 # 6. the files

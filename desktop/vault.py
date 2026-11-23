@@ -104,6 +104,19 @@ def brightspace_link(uid):
     return f"https://{m.group(3)}/d2l/le/calendar/{m.group(1)}/event/{m.group(2)}/detailsview" if m else ""
 
 
+def level(pts):
+    """Levels come fast early and slower later: 20 pts to reach level 2, then 30 more, 40 more… Returns (level, into, need)."""
+    lvl, left, need = 1, int(pts or 0), 20
+    while left >= need:
+        left, lvl, need = left - need, lvl + 1, need + 10
+    return lvl, left, need
+
+
+def bar(into, need, n=10):
+    k = max(0, min(n, round(n * into / need))) if need else n
+    return "▰" * k + "▱" * (n - k)
+
+
 def hm(minutes):
     minutes = int(minutes or 0)
     h, m = divmod(minutes, 60)
@@ -284,18 +297,25 @@ def task_line(t, today):
 
 def node_block(n, nd, open_ts, done_ts, today, limit=12):
     kids = sorted((c for c in nd if nd[c]["parent"] == n), key=lambda c: nd[c]["title"].lower())
-    out = [B_START]
+    pts = sum(t["points"] for t in done_ts)
+    lvl, into, need = level(pts)
+    monday = today - dt.timedelta(days=today.weekday())
+    week = sum(t["points"] for t in done_ts if t["done_date"] and t["done_date"] >= monday)
+    out = [B_START,
+           f"> [!gp-level] Level {lvl} · {into} / {need} to level {lvl + 1}",
+           f'> <progress value="{into}" max="{need}"></progress>',
+           f"> {'+' + str(week) + ' pts this week' if week else 'Nothing finished here this week yet'} · {len(open_ts)} open", ""]
     if kids:
-        out.append("**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]]" for c in kids))
-    out.append(f"### Open ({len(open_ts)})")
+        out += ["**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]]" for c in kids), ""]
     ordered = sorted(open_ts, key=lambda t: (t["due"] or dt.date.max, t["title"].lower()))
-    out += [task_line(t, today) for t in ordered[:limit]] or ["Nothing open."]
+    out.append(f"> [!gp-open] Open · {len(open_ts)}")
+    out += ["> " + task_line(t, today) for t in ordered[:limit]] or ["> Nothing open. Take the win."]
     if len(open_ts) > limit:
-        out.append(f"- +{len(open_ts) - limit} more on the [[Map.canvas|map]]")
-    recent = sorted((t for t in done_ts if t["done_date"]), key=lambda t: t["done_date"], reverse=True)[:5]
+        out.append(f"> - +{len(open_ts) - limit} more on the [[Map.canvas|map]]")
+    recent = sorted((t for t in done_ts if t["done_date"]), key=lambda t: t["done_date"], reverse=True)[:6]
     if recent:
-        out.append("### Done lately")
-        out += [f"- [[{os.path.splitext(os.path.basename(t['path']))[0]}|{t['title']}]] · {short_date(t['done_date'])} · {t['points']} pts"
+        out += ["", f"> [!gp-done]- Built lately · {len(done_ts)} total"]
+        out += [f"> - [[{os.path.splitext(os.path.basename(t['path']))[0]}|{t['title']}]] · {short_date(t['done_date'])} · {t['points']} pt{'s' if t['points'] != 1 else ''}"
                 for t in recent]
     out.append(B_END)
     return "\n".join(out)
@@ -306,7 +326,7 @@ def set_block(text, block):
     i, j = text.find(B_START), text.find(B_END)
     if i >= 0 and j > i:
         return text[:i] + block + text[j + len(B_END):]
-    dl = re.search(r"(?m)^## Deadlines[ \t]*\n```dataview\n.*?\n```[ \t]*\n?", text, re.S)
+    dl = re.search(r"(?m)^## Deadlines[ \t]*\n(?:```dataview\n.*?\n```[ \t]*\n?)?", text, re.S)
     if dl:
         return text[:dl.start()] + "## Deadlines\n" + block + "\n" + text[dl.end():]
     return text.rstrip("\n") + "\n\n" + block + "\n"           # after your own words (goal and area notes)
@@ -314,8 +334,8 @@ def set_block(text, block):
 
 # ---------- the map, drawn: 07 Map/Map.canvas ----------
 CANVAS = os.path.join("07 Map", "Map.canvas")
-COLORS = {"vision": "#A99AD9", "goal": "#A99AD9", "area": "#E0B36E", "hub": "#7FB2D9",
-          "late": "#EE6A5F", "soon": "#EF7A2E", "doing": "#E0B36E"}
+COLORS = {"vision": "#A99AD9", "late": "#EE6A5F", "soon": "#EF7A2E", "doing": "#E0B36E"}
+BRANCH = ["#7FB2D9", "#86B98A", "#D98FA0", "#6CC0B3", "#E0B36E", "#CDBB94", "#A99AD9"]   # one color per goal branch
 
 
 def _id(prefix, s):
@@ -342,7 +362,7 @@ def map_canvas(vault, ts, nd, today, per_column=6):
     size = lambda n: 1 + sum(size(c) for c in kids[n])                    # biggest branch first, reading left to right
     for n in list(kids) + [None]:
         (kids.get(n) if n else roots).sort(key=lambda c: (rank_kind.get(nd[c]["kind"], 9), -size(c), nd[c]["title"].lower()))
-    todo, stats = {}, {n: [0, 0, 0] for n in nd}
+    todo, stats, rects = {}, {n: [0, 0, 0] for n in nd}, {}
     for t in ts:
         up = home(nd, t["cls"])
         if t["status"] != "done":
@@ -355,14 +375,16 @@ def map_canvas(vault, ts, nd, today, per_column=6):
     W, GAP, ROW, CARD = 260, 44, 210, 96
     nodes, edges, cursor = [], [], [0]
 
-    def text_node(key, text, cx, y, w, h, color=None):
+    def text_node(key, text, cx, y, w, h, color=None, branch=None):
         node = {"id": key, "type": "text", "text": text, "x": int(cx - w / 2), "y": int(y), "width": w, "height": h}
         if color:
             node["color"] = color
         nodes.append(node)
+        if branch:
+            rects.setdefault(branch, []).append(node)
         return key
 
-    def tasks_column(owner, items, depth, cx):
+    def tasks_column(owner, items, depth, cx, branch=None):
         top, prev = depth * ROW, owner
         for i, t in enumerate(items[:per_column]):
             stem = os.path.splitext(os.path.basename(t["path"]))[0]
@@ -371,16 +393,19 @@ def map_canvas(vault, ts, nd, today, per_column=6):
             pts = f"{t['points']} pt{'s' if t['points'] != 1 else ''}"
             label = (f"**[{t['title']}]({t['url']})**\n{due_words(t, today)} · {pts} · [[{stem}|note]]" if t["url"] and "/d2l/" in t["url"]
                      else f"[[{stem}|{t['title']}]]\n{due_words(t, today)} · {pts}")
-            key = text_node(_id("t-", t["id"]), label, cx, top + i * (CARD + 12), W, CARD, color)
+            key = text_node(_id("t-", t["id"]), label, cx, top + i * (CARD + 12), W, CARD, color, branch)
             if i == 0:
                 edges.append({"id": _id("e-", (owner or "") + key), "fromNode": owner, "fromSide": "bottom", "toNode": key, "toSide": "top"})
             prev = key
         if len(items) > per_column:
-            text_node(_id("m-", str(owner)), f"+{len(items) - per_column} more", cx, top + per_column * (CARD + 12), W, 44)
+            text_node(_id("m-", str(owner)), f"+{len(items) - per_column} more", cx, top + per_column * (CARD + 12), W, 44, None, branch)
         return prev
 
-    def place(n, depth):
+    def place(n, depth, branch=None, color=None):
         """Returns the x-center of n after placing its subtree (leaves get the next free column)."""
+        if branch is None and nd[n]["kind"] != "vision":
+            branch, color = n, BRANCH[len(rects) % len(BRANCH)]
+            rects.setdefault(branch, [])
         cols = kids[n] + (["__tasks__"] if todo.get(n) else [])
         xs = []
         for c in cols:
@@ -388,23 +413,27 @@ def map_canvas(vault, ts, nd, today, per_column=6):
                 xs.append(cursor[0])
                 cursor[0] += W + GAP
             else:
-                xs.append(place(c, depth + 1))
+                xs.append(place(c, depth + 1, branch, color))
         if not xs:
             xs = [cursor[0]]
             cursor[0] += W + GAP
         cx = (xs[0] + xs[-1]) / 2
         info, (done, pts, open_) = nd[n], stats[n]
         key = _id("n-", n)
+        lvl, into, need = level(pts)
         if info["kind"] == "vision":
-            body = re.sub(r"(?m)^(---\n.*?\n---\n|# .*|📊 .*|Part of .*)$", "", re.sub(r"^---\n.*?\n---\n", "", read(info["path"]), flags=re.S)).strip()
-            text_node(key, f"# [[{n}|{info['title']}]]\n{body}\n\n**{done} done · {pts} pts**", cx, depth * ROW, 2 * W, 190, COLORS["vision"])
+            body = read(info["path"])
+            body = body[body.find("\n# "):] if "\n# " in body else body
+            body = next((p.strip() for p in body.split("\n\n")[1:] if p.strip() and not p.lstrip().startswith(("📊", "Part of", "%%", ">", "#"))), "")
+            text_node(key, f"# [[{n}|{info['title']}]]\n{body}\n\n**Level {lvl}** {bar(into, need)} · {done} done · {pts} pts",
+                      cx, depth * ROW - 90, 2 * W, 210, COLORS["vision"])        # sits above the goal groups
         else:
-            text_node(key, f"### [[{n}|{info['title']}]]\n{done} done · {pts} pts" + (f" · **{open_} open**" if open_ else ""),
-                      cx, depth * ROW, W, 110, COLORS.get(info["kind"]))
+            text_node(key, f"### [[{n}|{info['title']}]]\n**Level {lvl}** {bar(into, need)}\n{done} done" + (f" · **{open_} open**" if open_ else ""),
+                      cx, depth * ROW, W, 130, color, branch)
         for c in kids[n]:
             edges.append({"id": _id("e-", n + c), "fromNode": key, "fromSide": "bottom", "toNode": _id("n-", c), "toSide": "top"})
         if todo.get(n):
-            tasks_column(key, todo[n], depth + 1, xs[-1])
+            tasks_column(key, todo[n], depth + 1, xs[-1], branch)
         return cx
 
     for r in sorted(roots, key=lambda r: (nd[r]["kind"] != "vision", r)):
@@ -413,9 +442,19 @@ def map_canvas(vault, ts, nd, today, per_column=6):
         cx = cursor[0]
         cursor[0] += W + GAP
         tasks_column(text_node("unsorted", "### Unsorted\nTasks without a class yet", cx, ROW, W, 110), todo[None], 2, cx)
-    text_node("legend", "**🧭 Map** · drawn by Game Plan, redrawn when anything changes\n"
+    text_node("legend", "**🧭 Map** · each color is one goal and everything feeding it. Levels grow with every point you finish.\n"
               "Click a task's name to open it in Brightspace, *note* for its note. Red: overdue · Orange: due within 2 days",
-              min(n["x"] for n in nodes) + 300 if nodes else 0, 0, 600, 90)
+              min(n["x"] for n in nodes) + 330 if nodes else 0, 0, 660, 90)
+    groups = []
+    for b, members in rects.items():
+        if not members:
+            continue
+        x0, y0 = min(m["x"] for m in members) - 24, min(m["y"] for m in members) - 24
+        x1, y1 = max(m["x"] + m["width"] for m in members) + 24, max(m["y"] + m["height"] for m in members) + 24
+        lvl = level(stats[b][1])[0]
+        groups.append({"id": _id("g-", b), "type": "group", "label": f"{nd[b]['title']} · level {lvl}", "x": x0, "y": y0,
+                       "width": x1 - x0, "height": y1 - y0, "color": members[0].get("color") or "#A99AD9"})
+    nodes = groups + nodes                       # groups first so they sit behind the cards
     out = json.dumps({"nodes": nodes, "edges": edges}, indent=1)
     p = os.path.join(vault, CANVAS)
     if read(p) != out:
@@ -423,7 +462,7 @@ def map_canvas(vault, ts, nd, today, per_column=6):
     return p
 
 
-# ---------- daily + weekly notes ----------
+# ---------- daily notes ----------
 def add_under(text, heading, line):
     """Insert a bullet right under `## heading` (dropping the template's lone '-'), or add the section."""
     m = re.search(rf"(?m)^## {re.escape(heading)}[ \t]*\n", text)
@@ -471,52 +510,6 @@ def replace_section(text, heading, body):
 
 def has_section(path, heading):
     return bool(re.search(rf"(?m)^## {re.escape(heading)}[ \t]*$", read(path)))
-
-
-def weekly_path(vault, sunday):
-    return os.path.join(vault, "06 Daily", "Weekly", f"{sunday.isoformat()} Weekly Review.md")
-
-
-# ---------- experiments ----------
-def experiments(vault):
-    text = read(os.path.join(vault, "System", "experiments.md"))
-    items = {int(m.group(1)): (m.group(2).strip().rstrip("."), m.group(3).strip())
-             for m in re.finditer(r"(?m)^(\d+)\. \*\*(.+?)\*\*\s*(.*)$", text)}
-    num = lambda k: int(re.search(rf"(?m)^{k}:\s*(\d+)", text).group(1)) if re.search(rf"(?m)^{k}:\s*\d+", text) else None
-    active = num("Active")
-    return {"active": active, "next": num("Next"), "items": items,
-            "title": items.get(active, ("", ""))[0], "text": items.get(active, ("", ""))[1]}
-
-
-def decide_experiment(vault, decision, note, today):
-    """Sunday decision: keep, change (log the tweak) or swap to the next experiment in the queue."""
-    p = os.path.join(vault, "System", "experiments.md")
-    text = read(p)
-    ex = experiments(vault)
-    cur, order = ex["active"], sorted(ex["items"])
-    if not order or cur is None:
-        return ex
-    after = lambda n: order[(order.index(n) + 1) % len(order)] if n in order else order[0]
-    if decision == "swap":
-        new = ex["next"] if ex["next"] and ex["next"] != cur else after(cur)
-        nxt = after(new)
-        nxt = after(nxt) if nxt == cur else nxt
-        text = re.sub(r"(?m)^Active:\s*\d+", f"Active: {new}", text)
-        text = re.sub(r"(?m)^Next:\s*\d+", f"Next: {nxt}", text) if re.search(r"(?m)^Next:", text) else text
-        line = f"- {today}: swapped #{cur} {ex['items'][cur][0]} → #{new} {ex['items'][new][0]}." + (f" {note}" if note else "")
-    elif decision == "change":
-        line = f"- {today}: changed #{cur} {ex['items'][cur][0]}: {note or '(no details)'}"
-    else:
-        line = f"- {today}: kept #{cur} {ex['items'][cur][0]}." + (f" {note}" if note else "")
-    text = add_log(text, line)
-    write(p, text)
-    return experiments(vault)
-
-
-def add_log(text, line):
-    if re.search(r"(?m)^## Log[ \t]*$", text):
-        return text.rstrip("\n") + "\n" + line + "\n"
-    return text.rstrip("\n") + "\n\n## Log\n" + line + "\n"
 
 
 # ---------- schedule: when am I free? ----------
@@ -648,23 +641,23 @@ def progress(ts, today, days=14):
     while d in have:
         streak += 1
         d -= dt.timedelta(days=1)
-    return {"days": out, "today": sum(t["points"] for t in done if t["done_date"] == today), "goal": DAY_GOAL, "streak": streak}
+    built = [t for t in done if t["done_date"] == today]
+    return {"days": out, "today": sum(t["points"] for t in built), "goal": DAY_GOAL, "streak": streak,
+            "built": [t["title"] for t in sorted(built, key=lambda t: -t["points"])]}
 
 
-def week_numbers(ts, sunday):
-    """Mon-Sun numbers for the Sunday review."""
-    monday = sunday - dt.timedelta(days=6)
-    done = [t for t in ts if t["status"] == "done" and t["done_date"] and monday <= t["done_date"] <= sunday]
-    per_day = {}
-    for t in done:
-        per_day[t["done_date"]] = per_day.get(t["done_date"], 0) + t["points"]
-    timed = [t for t in done if t["actual"] and t["my_est"]]
-    by_cls = {}
-    for t in done:
-        by_cls[t["cls"]] = by_cls.get(t["cls"], 0) + t["points"]
-    best = max(per_day.items(), key=lambda kv: kv[1]) if per_day else None
-    return {"from": monday.isoformat(), "to": sunday.isoformat(), "done": len(done), "points": sum(per_day.values()),
-            "not_zero_days": len(per_day), "best_day": f"{best[0]:%A} ({best[1]} pts)" if best else "none yet",
-            "top": max(by_cls, key=by_cls.get) if by_cls else "none yet",
-            "estimate": (f"you guessed {sum(t['my_est'] for t in timed)} min, took {sum(t['actual'] for t in timed)}"
-                         if timed else "no timed tasks yet")}
+def identities(ts, nd):
+    """Each goal is someone you're becoming. Finished points are proof, and proof levels them up."""
+    pts = {n: 0 for n in nd if nd[n]["kind"] in ("goal", "vision")}
+    for t in ts:
+        if t["status"] == "done":
+            for n in chain(nd, home(nd, t["cls"])):
+                if n in pts:
+                    pts[n] += t["points"]
+    out = []
+    for n, p in pts.items():
+        lvl, into, need = level(p)
+        out.append({"name": n, "title": nd[n]["title"], "kind": nd[n]["kind"], "pts": p, "level": lvl, "into": into, "need": need})
+    return sorted(out, key=lambda g: (g["kind"] != "vision", -g["pts"], g["title"]))
+
+
