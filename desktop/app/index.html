@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+<a class="skip" href="#hero-body">Skip to your task</a>
 <header class="bar">
   <span class="mark">Game Plan</span>
   <nav class="views" aria-label="View">
@@ -20,6 +21,7 @@
   <div class="bar-actions">
     <button class="pill warn-pill" id="setup" hidden>Finish setup: Brightspace sync</button>
     <button class="pill" id="open-checkin" hidden>Night check-in</button>
+    <a class="link" id="scoreboard" href="#">Scoreboard</a>
     <a class="link" id="map" href="#">Open my map</a>
   </div>
 </header>
@@ -27,7 +29,9 @@
 <main class="court" id="court">
   <section class="hero" aria-live="polite">
     <svg class="arc" viewBox="0 0 400 400" aria-hidden="true"><path d="M400 40 A 300 300 0 0 0 400 360"/><circle cx="400" cy="200" r="60"/></svg>
-    <div class="hero-body" id="hero-body"></div>
+    <div class="hero-body" id="hero-body" tabindex="-1">
+      <div class="skel" aria-hidden="true"><i class="s1"></i><i class="s2"></i><i class="s3"></i><i class="s4"></i></div>
+      <p class="sr">Loading your next task…</p></div>
   </section>
   <aside class="side">
     <section class="panel up-next" aria-labelledby="next-h">
@@ -67,9 +71,10 @@
 <div class="burst" id="burst" hidden></div>
 
 <div class="cmd-result" id="cmd-result" role="status" aria-live="polite" hidden></div>
+<div class="cmd-hints" id="cmd-hints" hidden></div>
 <form class="typebox" id="typebox" autocomplete="off">
   <label class="sr" for="type-in">Tell Game Plan anything</label>
-  <input id="type-in" name="text" maxlength="600" spellcheck="true" placeholder="Tell Game Plan anything: add, finish, move, rename, drop, or ask…">
+  <input id="type-in" name="text" maxlength="600" spellcheck="true" placeholder="Tell Game Plan anything: add, finish, move, rename, drop, or ask…  ( / )">
   <span class="type-status" id="type-status" role="status"></span>
 </form>
 

@@ -235,7 +235,22 @@ button { touch-action: manipulation; }
 .filter { height: 28px; padding: 0 12px; margin-bottom: 6px; border-radius: 999px; border: 1px solid var(--maple); color: var(--maple); background: none; font-size: 13px; font-weight: 600; cursor: pointer; }
 .list .rows { flex: 1; }
 
+/* ---------- skip link + first-load skeleton ---------- */
+.skip { position: absolute; left: 16px; top: -60px; z-index: 20; background: var(--maple); color: #24170A; padding: 8px 14px; border-radius: 8px; font-weight: 700; text-decoration: none; }
+.skip:focus { top: 12px; }
+.skel { display: grid; gap: 18px; padding-top: 8px; }
+.skel i { display: block; height: 18px; border-radius: 8px; background: linear-gradient(90deg, var(--line), #4A3B2F, var(--line)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+.skel .s1 { width: 30%; } .skel .s2 { width: 70%; height: 80px; } .skel .s3 { width: 55%; } .skel .s4 { width: 20%; height: 44px; margin-top: 120px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
 /* ---------- command bar ---------- */
+.cmd-hints { position: fixed; left: 32px; right: 32px; bottom: 96px; z-index: 3; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow: hidden;
+  background: var(--board); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.cmd-hints .chip-btn { flex: none; }
+.cmd-hints .hint { font-size: 13px; color: var(--chalk-3); }
+.cmd-hints .chip-btn { background: var(--board); }
+.typebox.busy input { border-color: var(--maple); animation: busy 1.2s ease-in-out infinite; }
+@keyframes busy { 50% { box-shadow: 0 0 0 4px rgba(224, 179, 110, .18); } }
 .cmd-result { position: fixed; left: 32px; right: 32px; bottom: 96px; z-index: 4; display: flex; align-items: center; gap: 12px;
   background: var(--board); border: 1px solid var(--maple); border-radius: 12px; padding: 12px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
 .cmd-text { flex: 1; font-size: 15px; color: var(--chalk); }

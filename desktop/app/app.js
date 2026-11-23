@@ -89,6 +89,7 @@ function renderBar() {
   $("#setup").textContent = b.error === "login" ? "Log in to Brightspace in Chrome" : "Finish setup: Brightspace sync";
   $("#open-checkin").hidden = !S.checkin_due;
   $("#map").href = S.map;
+  $("#scoreboard").href = S.scoreboard;
 }
 
 function show(v) {
@@ -432,10 +433,36 @@ function showResult(r) {
   };
 }
 
+/* example commands while the bar is empty: shows what it can do, one click fills it in */
+function hints() {
+  const el = $("#cmd-hints"), input = $("#type-in");
+  if (!S || input.value.trim() || document.activeElement !== input || !$("#cmd-result").hidden) { el.hidden = true; return; }
+  const next = S.next[0], hero = S.hero;
+  const ex = ["what's left today?", hero && `finished ${hero.title}`, next && `move ${next.title} to tomorrow`,
+              hero && `${hero.title} will take 2 hours`, "add: email the TA about PROJ3, due Friday"].filter(Boolean);
+  el.innerHTML = `<span class="hint">Try:</span>` + ex.map((x) => `<button type="button" class="chip-btn ex">${esc(x.length > 46 ? x.slice(0, 45) + "…" : x)}</button>`).join("");
+  el.querySelectorAll(".ex").forEach((b, i) => (b.onmousedown = (e) => { e.preventDefault(); input.value = ex[i]; input.focus(); hints(); }));
+  el.hidden = false;
+}
+$("#type-in").addEventListener("focus", hints);
+$("#type-in").addEventListener("input", hints);
+$("#type-in").addEventListener("blur", () => setTimeout(hints, 0));
+
+/* keys: / types, 1 and 2 switch views, Esc closes things */
+document.addEventListener("keydown", (e) => {
+  const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) || !$("#sheet-wrap").hidden;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "/") { e.preventDefault(); $("#type-in").focus(); }
+  else if (e.key === "1") show("now");
+  else if (e.key === "2") show("all");
+});
+
 $("#typebox").onsubmit = async (e) => {
   e.preventDefault();
   const input = $("#type-in"), text = input.value.trim();
   if (!text) return;
+  $("#typebox").classList.add("busy");
+  $("#cmd-hints").hidden = true;
   input.disabled = true;
   say("Working on it…");
   try {
@@ -447,7 +474,7 @@ $("#typebox").onsubmit = async (e) => {
     if (r.idea) spitball(r.idea);
     showResult(r);
   } catch (err) { say(err.message, true); }
-  finally { input.disabled = false; if ($("#sheet-wrap").hidden) input.focus(); }
+  finally { $("#typebox").classList.remove("busy"); input.disabled = false; if ($("#sheet-wrap").hidden) input.focus(); }
 };
 
 /* ---------- sheets ---------- */

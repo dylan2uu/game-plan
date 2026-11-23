@@ -122,9 +122,15 @@ class ModelTests(Base):
         self.assertIn("#done", text)
         self.assertNotIn("#overdue", text)
         hub = V.read(os.path.join(self.v, "01 Classes/CS 350/CS 350 Hub.md"))
-        self.assertIn(f"📊 CS 350: 1 done · 5 pts · 30m · last: {V.short_date(TODAY)}", hub)
-        self.assertIn("📊 Vision: 1 done · 5 pts", V.read(os.path.join(self.v, "07 Map/Vision.md")))
-        self.assertIn("📊 Body: 0 done · 0 pts", V.read(os.path.join(self.v, "07 Map/Goal - Body.md")))
+        self.assertIn(f"> **5 pts** · 30m of real work · 1 done · last {V.short_date(TODAY)} · **15 to Bench**", hub)   # the card is the header
+        self.assertNotIn("📊", hub)
+        self.assertIn("> [!gp-task] Done", text)
+        self.assertIn("**5 pts** · 30m of real work · 1 done", V.read(os.path.join(self.v, "07 Map/Vision.md")))
+        self.assertIn("**0 pts**", V.read(os.path.join(self.v, "07 Map/Goal - Body.md")))
+        board = V.read(os.path.join(self.v, V.SCOREBOARD))
+        for want in ("# 🏆 Scoreboard", "## How levels work", "| 6 | All-Star | 200 pts |", "| Finished | 1 tasks |", "## By class"):
+            self.assertIn(want, board)
+        self.assertNotIn("Scoreboard", " ".join(V.nodes(self.v)))                     # not part of the tree
 
     def test_zero_day_and_progress(self):
         V.refresh_day(self.v, TODAY - dt.timedelta(days=1), [])
@@ -376,7 +382,8 @@ class FlowTests(Base):
         st = S.state_json()["progress"]
         self.assertEqual((st["today"], sorted(st["built"])), (21, ["Lab", "Project"]))
         goal = V.read(os.path.join(self.v, "07 Map/Goal - CS Degree.md"))
-        self.assertIn("> [!gp-level] Bench · level 2 · 1 / 30 to Rotation", goal)
+        self.assertIn("> [!gp-level] Bench · level 2", goal)
+        self.assertIn("**1 to Rotation**".replace("1 to", "29 to"), goal)
         self.assertIn("> [!gp-done]- Built lately · 2 total", goal)
 
     def test_nudges(self):

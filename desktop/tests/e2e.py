@@ -27,8 +27,8 @@ def read(rel):
 
 
 def stat(rel):
-    m = re.search(r"(?m)^📊 .*?: (\d+) done · (\d+) pts", read(rel))
-    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    m = re.search(r"(?m)^> \*\*(\d+) pts\*\* · .*? · (\d+) done", read(rel))          # the level card under the title
+    return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
 
 
 before = {r: stat(r) for r in ("01 Classes/CS 350/CS 350 Hub.md", "07 Map/Goal - CS Degree.md", "07 Map/Vision.md")}

@@ -198,6 +198,7 @@ def state_json():
         "next": [view(t, why, nd) for t, why in ranked if not hero or t["id"] != hero["id"]][:5],
         "week": week, "progress": V.progress(ts, today), "identities": V.identities(ts, nd),
         "map": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.CANVAS),
+        "scoreboard": "obsidian://open?vault=" + urllib.parse.quote(os.path.basename(vault)) + "&file=" + urllib.parse.quote(V.SCOREBOARD),
         "checkin_due": t0.hour >= 21 and not V.has_section(daily, "Night check-in"),
         "all": [dict(id=t["id"], title=t["title"], cls=t["cls"], points=t["points"], est=V.est_min(t), status=t["status"], url=t["url"],
                      due=t["due"].isoformat() if t["due"] else None, done=t["done_date"].isoformat() if t["done_date"] else None,

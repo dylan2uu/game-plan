@@ -191,7 +191,7 @@ def nodes(vault):
     """name -> {path, title, parent, kind} for map notes (07 Map) and class/project hubs."""
     vl = vaultlib(vault)
     out = {}
-    paths = list(vl.iter_notes(vault, "07 Map"))
+    paths = [p for p in vl.iter_notes(vault, "07 Map") if re.match(r"^(Vision|Goal - .+|Area - .+)\.md$", os.path.basename(p))]
     for folder in ("01 Classes", "03 Projects"):
         root = os.path.join(vault, folder)
         for d in sorted(os.listdir(root)) if os.path.isdir(root) else []:
@@ -256,24 +256,40 @@ def set_stat(text, line):
     return text[:i] + line + "\n" + text[i:]
 
 
-def fix_task_text(text, parent, tags, url=""):
-    """Make sure a task note links up to its class/area (and to Brightspace) and carries the right status tags."""
+def task_card(t, today):
+    pts = f"{t['points']} pt{'s' if t['points'] != 1 else ''}"
+    link = f" · [Open in Brightspace]({t['url']})" if t["url"] and "/d2l/" in t["url"] else ""
+    if t["status"] == "done":
+        took = f" · took {hm(t['actual'])}" if t["actual"] else ""
+        return f"> [!gp-task] Done {short_date(t['done_date'])} · {pts}{took}{link}"
+    return f"> [!gp-task] {pts} · ~{hm(est_min(t))} · {due_words(t, today)}{link}"
+
+
+GENERIC_STEP = "## First step (5 min)\n- Open it and write 3 bullets of what it's actually asking\n"
+
+
+def fix_task_text(text, parent, tags, t=None, today=None):
+    """A task note: links up to its class/area, opens on a status card, and carries the right status tags."""
     fm = re.match(r"^---\n.*?\n---\n", text, re.S)
     head, body = (text[:fm.end()], text[fm.end():]) if fm else ("", text)
     if parent and not re.search(r"(?m)^Part of \[\[", body):
         h1 = re.search(r"(?m)^# .+$", body)
         body = (body[:h1.end()] + f"\nPart of [[{parent}]]" + body[h1.end():]) if h1 else f"Part of [[{parent}]]\n" + body
-    if url and "/d2l/" in url and "Open in Brightspace" not in body:
-        anchor = re.search(r"(?m)^Part of \[\[.*$", body) or re.search(r"(?m)^# .+$", body)
-        line = f"[Open in Brightspace]({url})"
-        body = (body[:anchor.end()] + "\n" + line + body[anchor.end():]) if anchor else line + "\n" + body
+    body = body.replace(GENERIC_STEP + "\n", "").replace(GENERIC_STEP, "")
+    if t is not None:
+        card = task_card(t, today or dt.date.today())
+        body = re.sub(r"(?m)^\[Open in Brightspace\]\(.*\)[ \t]*\n?", "", body)
+        if re.search(r"(?m)^> \[!gp-task\].*$", body):
+            body = re.sub(r"(?m)^> \[!gp-task\].*$", lambda m: card, body, count=1)
+        else:
+            anchor = re.search(r"(?m)^Part of \[\[.*$", body) or re.search(r"(?m)^# .+$", body)
+            body = (body[:anchor.end()] + "\n\n" + card + "\n\n" + body[anchor.end():].lstrip("\n")) if anchor else card + "\n\n" + body
     stripped = re.sub(r"(?m)^#(done|overdue)[ \t]*(\n|\Z)", "", body)
     if tags:
         stripped = stripped.rstrip("\n") + "\n\n" + " ".join(tags) + "\n"
     elif stripped != body:
         stripped = stripped.rstrip("\n") + "\n"
     return head + stripped
-
 
 def ensure_vault(vault, today=None):
     """Idempotent upkeep: task links + tags + points, and every map/hub 📊 line. Returns (tasks, nodes)."""
@@ -283,7 +299,7 @@ def ensure_vault(vault, today=None):
     for t in ts:
         tags = ["#done"] if t["status"] == "done" else (["#overdue"] if t["due"] and t["due"] < today else [])
         text = read(t["path"])
-        new = fix_task_text(text, home(nd, t["cls"]), tags, t["url"])
+        new = fix_task_text(text, home(nd, t["cls"]), tags, t, today)
         if new != text:
             write(t["path"], new)
         if not t["sized"]:
@@ -299,13 +315,14 @@ def ensure_vault(vault, today=None):
         if t["status"] != "done":
             for n in chain(nd, home(nd, t["cls"])):
                 open_by[n].append(t)
+    pts_by = {n: sum(t["points"] for t in by_node[n]) for n in nd}
     for n, info in nd.items():
         text = read(info["path"])
-        new = set_stat(text, stat_line(info["title"], by_node[n]))
-        new = set_block(new, node_block(n, nd, open_by[n], by_node[n], today))
+        new = set_block(text, node_block(n, nd, open_by[n], by_node[n], today, pts_by))
         if new != text:
             write(info["path"], new)
     map_canvas(vault, ts, nd, today)
+    scoreboard(vault, ts, nd, today)
     return ts, nd
 
 
@@ -321,24 +338,36 @@ def task_line(t, today):
     return f"- [[{stem}|{t['title']}]] · {due_words(t, today)} · {pts}"
 
 
-def node_block(n, nd, open_ts, done_ts, today, limit=12):
-    kids = sorted((c for c in nd if nd[c]["parent"] == n), key=lambda c: nd[c]["title"].lower())
+def node_block(n, nd, open_ts, done_ts, today, pts_by=None, limit=14):
+    kids = sorted((c for c in nd if nd[c]["parent"] == n), key=lambda c: -(pts_by or {}).get(c, 0))
     pts = sum(t["points"] for t in done_ts)
     lvl, into, need = level(pts)
-    monday = today - dt.timedelta(days=today.weekday())
-    week = sum(t["points"] for t in done_ts if t["done_date"] and t["done_date"] >= monday)
+    last = max((t["done_date"] for t in done_ts if t["done_date"]), default=None)
     out = [B_START,
-           f"> [!gp-level] {rank_name(lvl)} · level {lvl} · {into} / {need} to {rank_name(lvl + 1)}",
+           f"> [!gp-level] {rank_name(lvl)} · level {lvl}",
            f'> <progress value="{into}" max="{need}"></progress>',
-           f"> about {round(sum(minutes_spent(t) for t in done_ts) / 60)} hours of real work · "
-           f"{'+' + str(week) + ' pts this week' if week else 'nothing finished here this week yet'} · {len(open_ts)} open", ""]
+           f"> **{pts} pts** · {hm(sum(minutes_spent(t) for t in done_ts))} of real work · {len(done_ts)} done · last {short_date(last)}"
+           f" · **{need - into} to {rank_name(lvl + 1)}**", ""]
     if kids:
-        out += ["**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]]" for c in kids), ""]
+        out += ["**Inside:** " + " · ".join(f"[[{c}|{nd[c]['title']}]] ({rank_name(level((pts_by or {}).get(c, 0))[0])} {level((pts_by or {}).get(c, 0))[0]})"
+                                            for c in kids), ""]
     ordered = sorted(open_ts, key=lambda t: (t["due"] or dt.date.max, t["title"].lower()))
-    out.append(f"> [!gp-open] Open · {len(open_ts)}")
-    out += ["> " + task_line(t, today) for t in ordered[:limit]] or ["> Nothing open. Take the win."]
-    if len(open_ts) > limit:
-        out.append(f"> - +{len(open_ts) - limit} more on the [[Map.canvas|map]]")
+    work = sum(est_min(t) for t in open_ts)
+    out.append(f"> [!gp-open] Open · {len(open_ts)}" + (f" · ~{hm(work)} of work" if open_ts else ""))
+    groups = [("Overdue", [t for t in ordered if t["due"] and t["due"] < today]),
+              ("This week", [t for t in ordered if t["due"] and today <= t["due"] <= today + dt.timedelta(days=7)]),
+              ("Later", [t for t in ordered if t["due"] and t["due"] > today + dt.timedelta(days=7)]),
+              ("No due date", [t for t in ordered if not t["due"]])]
+    shown = 0
+    for label, items in groups:
+        if items and shown < limit:
+            out.append(f"> **{label}**")
+            out += ["> " + task_line(t, today) for t in items[:limit - shown]]
+            shown += min(len(items), limit - shown)
+    if not open_ts:
+        out.append("> Nothing open. Take the win.")
+    elif len(open_ts) > shown:
+        out.append(f"> - +{len(open_ts) - shown} more on the [[Map.canvas|map]]")
     recent = sorted((t for t in done_ts if t["done_date"]), key=lambda t: t["done_date"], reverse=True)[:6]
     if recent:
         out += ["", f"> [!gp-done]- Built lately · {len(done_ts)} total"]
@@ -347,17 +376,20 @@ def node_block(n, nd, open_ts, done_ts, today, limit=12):
     out.append(B_END)
     return "\n".join(out)
 
-
 def set_block(text, block):
-    """Replace the generated section; first time, it takes over a hub's Deadlines query or goes at the end."""
+    """The generated section always sits right under the title, the "Part of" line and the note's own first
+    paragraph (a goal's statement), before any other section. Old placements are cleaned up."""
     i, j = text.find(B_START), text.find(B_END)
     if i >= 0 and j > i:
-        return text[:i] + block + text[j + len(B_END):]
-    dl = re.search(r"(?m)^## Deadlines[ \t]*\n(?:```dataview\n.*?\n```[ \t]*\n?)?", text, re.S)
-    if dl:
-        return text[:dl.start()] + "## Deadlines\n" + block + "\n" + text[dl.end():]
-    return text.rstrip("\n") + "\n\n" + block + "\n"           # after your own words (goal and area notes)
-
+        text = text[:i] + text[j + len(B_END):]
+    text = re.sub(rf"(?m)^{STAT}.*\n?", "", text)                                    # the card is the header now
+    text = re.sub(r"(?m)^## Deadlines[ \t]*\n(?:```dataview\n.*?\n```[ \t]*\n?)?\s*(?=^## |\Z)", "", text, flags=re.S)
+    m = re.search(r"(?m)^Part of \[\[.*$", text) or re.search(r"(?m)^# .+$", text)
+    pos = m.end() if m else (re.match(r"^---\n.*?\n---\n", text, re.S).end() if text.startswith("---\n") else 0)
+    para = re.match(r"\s*\n((?:(?![#%>`-])[^\n]+\n?)+)", text[pos:])
+    if para:
+        pos += para.end()
+    return text[:pos].rstrip("\n") + "\n\n" + block + "\n\n" + text[pos:].lstrip("\n").rstrip("\n") + ("\n" if text[pos:].strip() else "")
 
 # ---------- the map, drawn: 07 Map/Map.canvas ----------
 CANVAS = os.path.join("07 Map", "Map.canvas")
@@ -484,6 +516,89 @@ def map_canvas(vault, ts, nd, today, per_column=6):
     nodes = groups + nodes                       # groups first so they sit behind the cards
     out = json.dumps({"nodes": nodes, "edges": edges}, indent=1)
     p = os.path.join(vault, CANVAS)
+    if read(p) != out:
+        write(p, out)
+    return p
+
+
+# ---------- 07 Map/Scoreboard.md: what levels mean, and your stats ----------
+SCOREBOARD = os.path.join("07 Map", "Scoreboard.md")
+
+
+def scoreboard(vault, ts, nd, today):
+    ids = identities(ts, nd)
+    me = next((g for g in ids if g["kind"] == "vision"), None)
+    done = [t for t in ts if t["status"] == "done" and t["done_date"]]
+    by_day = {}
+    for t in done:
+        by_day[t["done_date"]] = by_day.get(t["done_date"], 0) + t["points"]
+    pts_all, min_all = sum(t["points"] for t in done), sum(minutes_spent(t) for t in done)
+    mpp = (min_all / pts_all) if pts_all else 15
+    first = min(by_day) if by_day else today
+    longest = run = 0
+    for i in range((today - first).days + 1):
+        run = run + 1 if (first + dt.timedelta(days=i)) in by_day else 0
+        longest = max(longest, run)
+    monday = today - dt.timedelta(days=today.weekday())
+    week = lambda m: [t for t in done if m <= t["done_date"] <= m + dt.timedelta(days=6)]
+    this, last = sum(t["points"] for t in week(monday)), sum(t["points"] for t in week(monday - dt.timedelta(days=7)))
+    timed = [t for t in done if t["actual"]]                                  # real times vs what their size predicted
+    est_sum, act_sum = sum(est_min(t) for t in timed), sum(t["actual"] for t in timed)
+    best = max(by_day.items(), key=lambda kv: kv[1]) if by_day else None
+    link = lambda name, title: f"[[{name}\\|{title}]]"
+    L = ["---", "type: scoreboard", "---", "# 🏆 Scoreboard",
+         "*Game Plan redraws this page whenever something changes. Points are proof; levels are that proof added up.*", ""]
+    if me:
+        L += [f"> [!gp-level] You · {me['rank']} · level {me['level']}", f'> <progress value="{me["into"]}" max="{me["need"]}"></progress>',
+              f"> **{me['pts']} pts** · ~{me['hours']} h of real work · {me['count']} finished since {short_date(first)} · "
+              f"**{me['need'] - me['into']} to {me['next_rank']}**", ""]
+    L += ["## Your goals", "| Goal | Rank | Level | Progress | Points | Real work | Next |", "|---|---|---|---|---|---|---|"]
+    L += [f"| {link(g['name'], g['title'])} | {g['rank']} | {g['level']} | {bar(g['into'], g['need'])} | {g['pts']} | ~{g['hours']} h | "
+          f"{g['next_rank']} in {g['need'] - g['into']} |" for g in ids if g["kind"] == "goal"]
+    L += ["", "## Season stats", "| | |", "|---|---|",
+          f"| Finished | {len(done)} tasks |", f"| Points | {pts_all} |", f"| Real work | ~{round(min_all / 60)} h |",
+          f"| Producer days ({DAY_GOAL}+ pts) | {sum(1 for v in by_day.values() if v >= DAY_GOAL)} |",
+          f"| Not-zero days | {len(by_day)} of {(today - first).days + 1} |",
+          f"| Best day | {best[0]:%a}, {short_date(best[0])} · {best[1]} pts |" if best else "| Best day | none yet |",
+          f"| Longest streak | {longest} days |", f"| Current streak | {progress(ts, today)['streak']} days |",
+          f"| This week | {this} pts (last week {last}" + (f", {'+' if this >= last else ''}{round((this - last) * 100 / last)}%)" if last else ")") + " |",
+          (f"| Your real speed | {len(timed)} timed tasks took {abs(round((act_sum - est_sum) * 100 / est_sum))}% {'less' if act_sum < est_sum else 'more'} "
+           f"time than their size predicted ({hm(act_sum)} vs {hm(est_sum)}). "
+           f"{'Tasks are smaller than they feel.' if act_sum < est_sum else 'Give big ones a head start.'} |") if est_sum else "| Your estimates | no timed tasks yet: press Start to learn your real speed |",
+          "", "## By class", "| Class | Done | Points | Real work | Open |", "|---|---|---|---|---|"]
+    classes = {}
+    for t in ts:
+        c = classes.setdefault(t["cls"], [0, 0, 0, 0])
+        if t["status"] == "done":
+            c[0], c[1], c[2] = c[0] + 1, c[1] + t["points"], c[2] + minutes_spent(t)
+        else:
+            c[3] += 1
+    for cls, (n_done, p, m, n_open) in sorted(classes.items(), key=lambda kv: -kv[1][1]):
+        hub = home(nd, cls)
+        L.append(f"| {link(hub, cls) if hub else cls} | {n_done} | {p} | {hm(m)} | {n_open} |")
+    L += ["", "## Last 8 weeks", "| Week of | Points | Finished | |", "|---|---|---|---|"]
+    weeks = [(monday - dt.timedelta(days=7 * k)) for k in range(7, -1, -1)]
+    peak = max([sum(t["points"] for t in week(m)) for m in weeks] + [1])
+    for m in weeks:
+        w = week(m)
+        p = sum(t["points"] for t in w)
+        L.append(f"| {short_date(m)} | {p} | {len(w)} | {'▰' * round(10 * p / peak)}{'▱' * (10 - round(10 * p / peak))} |")
+    L += ["", "## How levels work",
+          "Every finished task adds its points to its class, then to every goal above it, and finally to you. "
+          "Level 2 takes 20 points, then each level takes 10 more than the last. **Levels never go down.** "
+          f"A level is hours of real work you've already put in: at your pace, one point is about {round(mpp)} minutes.", "",
+          "| Level | Rank | Reached at | About this much real work |", "|---|---|---|---|"]
+    L += [f"| {l} | {rank_name(l)} | {threshold(l)} pts | ~{round(threshold(l) * mpp / 60)} h |" for l in range(1, 11)]
+    L += ["", "## How points work", "Points follow the time a task really takes. Claude sizes each task from how long similar ones took you; "
+          "click the points in Game Plan to change one.", "",
+          "| Points | Time it really takes | Usually |", "|---|---|---|",
+          "| 1 | under 15 min | forms, surveys, quick emails |", "| 2 | 15–30 min | quizzes, discussion posts, journals |",
+          "| 3 | 30–60 min | short assignments |", "| 5 | 1–2 h | problem sets |", "| 8 | 2–4 h | papers, presentations |",
+          "| 13 | 4 h or more | project milestones |", "",
+          f"- **Producer day:** {DAY_GOAL} points in a day. The day's work is done; everything after is a bonus.",
+          "- **Not-zero streak:** any day with at least 1 point. Missing a day resets the streak, never your levels.",
+          "- **Proof you can show:** Game Plan's *Share this week* copies what you built this week.", ""]
+    out, p = "\n".join(L), os.path.join(vault, SCOREBOARD)
     if read(p) != out:
         write(p, out)
     return p
